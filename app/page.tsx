@@ -10,11 +10,7 @@ interface Restaurant {
   rating: number
 }
 
-async function getRestaurants(): Promise<{ restaurants: Restaurant[]; debug: string }> {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
-  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
-  const envInfo = `url_len=${url.length} url_ends="${url.slice(-15)}" key_len=${key.length}`
-
+async function getRestaurants(): Promise<Restaurant[]> {
   const { data, error } = await supabase
     .from('restaurants')
     .select('*')
@@ -22,14 +18,14 @@ async function getRestaurants(): Promise<{ restaurants: Restaurant[]; debug: str
 
   if (error) {
     console.error('Failed to fetch restaurants:', error)
-    return { restaurants: [], debug: `${envInfo} | error=${JSON.stringify(error)}` }
+    return []
   }
 
-  return { restaurants: data || [], debug: envInfo }
+  return data || []
 }
 
 export default async function Home() {
-  const { restaurants, debug } = await getRestaurants()
+  const restaurants = await getRestaurants()
 
   return (
     <main style={{ padding: '20px' }}>
@@ -37,10 +33,7 @@ export default async function Home() {
       <h2>맛집 목록</h2>
 
       {restaurants.length === 0 ? (
-        <div>
-          <p>음식 목록을 불러올 수 없습니다.</p>
-          <p style={{ fontSize: '12px', color: 'gray' }}>DEBUG: {debug}</p>
-        </div>
+        <p>음식 목록을 불러올 수 없습니다.</p>
       ) : (
         <div>
           {restaurants.map((restaurant) => (
