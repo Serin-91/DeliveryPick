@@ -22,43 +22,10 @@ async function getRestaurants(): Promise<Restaurant[]> {
   return data || []
 }
 
-export default async function Home() {
-  const restaurants = await getRestaurants()
-
+export default function Home() {
   return (
-    <main style={{ padding: '20px' }}>
-      <h1>🍽️ DeliveryPick</h1>
-      <p>Welcome to your delivery app!</p>
-
-      <h2>Popular Restaurants</h2>
-      {restaurants.length === 0 ? (
-        <p>No restaurants available</p>
-      ) : (
-        <div style={{ display: 'grid', gap: '15px' }}>
-          {restaurants.map((restaurant) => (
-            <div
-              key={restaurant.id}
-              style={{
-                border: '1px solid #ddd',
-                borderRadius: '8px',
-                padding: '15px',
-                backgroundColor: '#f9f9f9',
-              }}
-            >
-              <h3 style={{ margin: '0 0 10px 0' }}>{restaurant.name}</h3>
-              <p style={{ margin: '5px 0' }}>
-                <strong>Type:</strong> {restaurant.cuisine_type}
-              </p>
-              <p style={{ margin: '5px 0' }}>
-                <strong>Location:</strong> {restaurant.location}
-              </p>
-              <p style={{ margin: '5px 0', color: '#ff6b6b' }}>
-                <strong>Rating:</strong> ⭐ {restaurant.rating}
-              </p>
-            </div>
-          ))}
-        </div>
-      )}
+    <main>
+      <h1>DeliveryPick</h1>
     </main>
   )
 }
