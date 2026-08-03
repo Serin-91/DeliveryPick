@@ -1,48 +1,31 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { usePathname, useRouter } from 'next/navigation'
+import { useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { Plus, LogOut, LogIn, UserPlus } from 'lucide-react'
 import type { User } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
 import TodayPickModal from '@/components/TodayPickModal'
 import LoginRequiredModal from '@/components/LoginRequiredModal'
 
-type GateTarget = 'pick' | 'register'
+type GateTarget = 'register'
 
 const GATE_MESSAGE: Record<GateTarget, string> = {
-  pick: '로그인하면 오늘의 배달 메뉴를 추천받을 수 있어요.',
   register: '맛집을 등록하려면 로그인이 필요합니다.',
 }
 
 const GATE_NEXT: Record<GateTarget, string> = {
-  pick: '/?pick=1',
   register: '/register',
 }
 
 export default function Header({ user }: { user: User | null }) {
   const router = useRouter()
-  const pathname = usePathname()
   const [pickOpen, setPickOpen] = useState(false)
   const [gate, setGate] = useState<GateTarget | null>(null)
 
   const nickname = user
     ? (user.user_metadata?.nickname as string) || user.email?.split('@')[0] || '회원'
     : ''
-
-  // 로그인 후 /?pick=1 로 돌아온 경우 추천 모달을 한 번 자동으로 열고 쿼리를 정리한다
-  useEffect(() => {
-    if (!user) return
-    if (typeof window === 'undefined') return
-
-    const params = new URLSearchParams(window.location.search)
-    if (params.get('pick') !== '1') return
-
-    setPickOpen(true)
-    params.delete('pick')
-    const qs = params.toString()
-    router.replace(qs ? `${pathname}?${qs}` : pathname || '/')
-  }, [user, pathname, router])
 
   const handleLogout = async () => {
     await supabase.auth.signOut()
@@ -52,10 +35,6 @@ export default function Header({ user }: { user: User | null }) {
   }
 
   const handlePickClick = () => {
-    if (!user) {
-      setGate('pick')
-      return
-    }
     setPickOpen(true)
   }
 
@@ -78,7 +57,7 @@ export default function Header({ user }: { user: User | null }) {
             <h1 className="text-xl sm:text-2xl font-bold text-sky-900 tracking-wide">
               <span aria-hidden="true">🛵</span> 딜리버리픽
             </h1>
-            <span className="text-[11px] sm:text-xs text-sky-600 font-sans font-medium hidden xs:inline sm:inline">
+            <span className="text-[11px] sm:text-xs text-sky-600 font-sans font-medium inline">
               수도권 배달맛집 Beta
             </span>
           </div>
@@ -90,7 +69,7 @@ export default function Header({ user }: { user: User | null }) {
               </span>
             )}
 
-            {/* 🌈 오늘 뭐 먹지? — 비회원도 보이지만 클릭 시 로그인 안내 */}
+            {/* 🌈 오늘 뭐 먹지? — 비회원도 이용 가능 */}
             <button
               type="button"
               onClick={handlePickClick}
@@ -127,7 +106,7 @@ export default function Header({ user }: { user: User | null }) {
                 <button
                   type="button"
                   onClick={() => router.push('/login')}
-                  className="flex items-center gap-1 px-2.5 sm:px-3.5 py-2 text-sky-800 hover:text-sky-900 hover:bg-sky-200/60 rounded-xl text-xs sm:text-sm font-sans font-semibold transition whitespace-nowrap"
+                  className="flex items-center gap-1 px-2.5 sm:px-3.5 py-2 border border-sky-300 text-sky-800 hover:text-sky-900 hover:bg-white rounded-xl text-xs sm:text-sm font-sans font-semibold transition whitespace-nowrap"
                 >
                   <LogIn className="w-4 h-4 sm:hidden" aria-hidden="true" />
                   <span>로그인</span>
@@ -146,7 +125,7 @@ export default function Header({ user }: { user: User | null }) {
         </div>
       </header>
 
-      {pickOpen && user && <TodayPickModal onClose={() => setPickOpen(false)} />}
+      {pickOpen && <TodayPickModal onClose={() => setPickOpen(false)} />}
 
       {gate && (
         <LoginRequiredModal
