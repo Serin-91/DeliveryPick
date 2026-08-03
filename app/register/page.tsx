@@ -12,7 +12,10 @@ import Header from '@/components/Header'
 import StarRating from '@/components/StarRating'
 import RegionMenuFields from '@/components/RegionMenuFields'
 import MenuInput from '@/components/MenuInput'
+import RepresentativeMenuImageInput from '@/components/RepresentativeMenuImageInput'
+import type { RepresentativeImageValue } from '@/components/RepresentativeMenuImageInput'
 import type { RegionValue } from '@/components/RegionMenuFields'
+import { removeDeliveryImage, uploadDeliveryImage } from '@/lib/deliveryImage'
 
 export default function RegisterPage() {
   const { user, loading: authLoading } = useRequireAuth()
@@ -28,6 +31,10 @@ export default function RegisterPage() {
     sigungu: '',
   })
   const [menuRows, setMenuRows] = useState<MenuFormRow[]>(createInitialMenuRows)
+  const [representativeImage, setRepresentativeImage] = useState<RepresentativeImageValue>({
+    blob: null,
+    removeExisting: false,
+  })
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
 
@@ -112,6 +119,33 @@ export default function RegisterPage() {
       return
     }
 
+    // 3) 대표 메뉴 사진 저장. 실패하면 본문까지 되돌려 반쪽 게시물이 남지 않게 한다.
+    if (representativeImage.blob) {
+      let uploadedPath: string | null = null
+      try {
+        uploadedPath = await uploadDeliveryImage(user.id, created.id, representativeImage.blob)
+        const { error: imagePathError } = await supabase
+          .from('deliveries')
+          .update({ image_path: uploadedPath })
+          .eq('id', created.id)
+          .eq('user_id', user.id)
+
+        if (imagePathError) throw imagePathError
+      } catch {
+        if (uploadedPath) {
+          try {
+            await removeDeliveryImage(uploadedPath)
+          } catch {
+            // DB 롤백이 우선이며, 저장소 정리는 가능한 범위에서 수행한다.
+          }
+        }
+        await supabase.from('deliveries').delete().eq('id', created.id).eq('user_id', user.id)
+        setSubmitting(false)
+        setError('사진 저장에 실패했습니다. 잠시 후 다시 시도해주세요.')
+        return
+      }
+    }
+
     setSubmitting(false)
     alert('새 맛집이 등록되었습니다!')
     router.push(`/delivery/${created.id}`)
@@ -189,6 +223,12 @@ export default function RegisterPage() {
             <RegionMenuFields value={formData} onChange={patchRegion} />
 
             <MenuInput rows={menuRows} onChange={setMenuRows} />
+
+            <RepresentativeMenuImageInput
+              value={representativeImage}
+              onChange={setRepresentativeImage}
+              disabled={submitting}
+            />
 
             <div className="pt-2 border-t border-slate-100">
               <label className="block text-xs font-medium text-slate-600 mb-1">평점 (1~5점)</label>

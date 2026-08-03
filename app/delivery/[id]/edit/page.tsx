@@ -18,7 +18,14 @@ import Header from '@/components/Header'
 import StarRating from '@/components/StarRating'
 import RegionMenuFields from '@/components/RegionMenuFields'
 import MenuInput from '@/components/MenuInput'
+import RepresentativeMenuImageInput from '@/components/RepresentativeMenuImageInput'
+import type { RepresentativeImageValue } from '@/components/RepresentativeMenuImageInput'
 import type { RegionValue } from '@/components/RegionMenuFields'
+import {
+  getDeliveryImageUrl,
+  removeDeliveryImage,
+  uploadDeliveryImage,
+} from '@/lib/deliveryImage'
 
 interface FormState {
   name: string
@@ -37,6 +44,11 @@ export default function EditPage() {
   const params = useParams<{ id: string }>()
   const [formData, setFormData] = useState<FormState | null>(null)
   const [menuRows, setMenuRows] = useState<MenuFormRow[]>([])
+  const [existingImagePath, setExistingImagePath] = useState<string | null>(null)
+  const [representativeImage, setRepresentativeImage] = useState<RepresentativeImageValue>({
+    blob: null,
+    removeExisting: false,
+  })
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
@@ -76,6 +88,7 @@ export default function EditPage() {
           sigungu: item.sigungu ?? '',
         })
         setMenuRows(toMenuRows(item.menus))
+        setExistingImagePath(item.image_path ?? null)
       }
       setLoading(false)
     }
@@ -165,6 +178,21 @@ export default function EditPage() {
     setSubmitting(true)
     setError('')
 
+    let uploadedPath: string | null = null
+    let nextImagePath = representativeImage.removeExisting ? null : existingImagePath
+
+    // 새 사진은 DB 수정 전에 먼저 업로드하고, 이후 단계 실패 시 즉시 정리한다.
+    if (representativeImage.blob) {
+      try {
+        uploadedPath = await uploadDeliveryImage(user.id, params.id, representativeImage.blob)
+        nextImagePath = uploadedPath
+      } catch {
+        setSubmitting(false)
+        setError('사진 업로드에 실패했습니다. 잠시 후 다시 시도해주세요.')
+        return
+      }
+    }
+
     // 1) 맛집 본문 수정
     const { error: updateError } = await supabase
       .from('deliveries')
@@ -177,11 +205,19 @@ export default function EditPage() {
         memo: formData.memo.trim(),
         sido: formData.sido,
         sigungu: formData.sigungu,
+        image_path: nextImagePath,
       })
       .eq('id', params.id)
       .eq('user_id', user.id)
 
     if (updateError) {
+      if (uploadedPath) {
+        try {
+          await removeDeliveryImage(uploadedPath)
+        } catch {
+          // 실패한 신규 파일 정리는 가능한 범위에서 수행한다.
+        }
+      }
       setSubmitting(false)
       setError('수정에 실패했습니다. 다시 시도해주세요.')
       return
@@ -194,9 +230,31 @@ export default function EditPage() {
     })
 
     if (menuError) {
+      // 메뉴 저장 실패 시 새 사진 참조를 원래대로 되돌린 뒤 신규 파일을 정리한다.
+      await supabase
+        .from('deliveries')
+        .update({ image_path: existingImagePath })
+        .eq('id', params.id)
+        .eq('user_id', user.id)
+      if (uploadedPath) {
+        try {
+          await removeDeliveryImage(uploadedPath)
+        } catch {
+          // 원래 사진 복원이 우선이며 저장소 정리는 가능한 범위에서 수행한다.
+        }
+      }
       setSubmitting(false)
       setError('메뉴 저장에 실패했습니다. 기존 메뉴는 그대로 유지되었습니다.')
       return
+    }
+
+    // DB가 새 경로를 가리키는 것이 확인된 뒤에만 이전 파일을 삭제한다.
+    if (existingImagePath && existingImagePath !== nextImagePath) {
+      try {
+        await removeDeliveryImage(existingImagePath)
+      } catch {
+        // 화면에는 새 경로만 노출되므로 이전 파일 정리 실패가 수정 결과를 깨뜨리지는 않는다.
+      }
     }
 
     setSubmitting(false)
@@ -287,6 +345,13 @@ export default function EditPage() {
             <RegionMenuFields value={formData} onChange={patchRegion} />
 
             <MenuInput rows={menuRows} onChange={setMenuRows} />
+
+            <RepresentativeMenuImageInput
+              value={representativeImage}
+              existingImageUrl={getDeliveryImageUrl(existingImagePath)}
+              onChange={setRepresentativeImage}
+              disabled={submitting}
+            />
 
             <div className="pt-2 border-t border-slate-100">
               <label className="block text-xs font-medium text-slate-600 mb-1">평점 (1~5점)</label>

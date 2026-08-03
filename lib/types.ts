@@ -19,6 +19,8 @@ export interface Delivery {
   user_id: string
   user_nickname?: string
   created_at: string
+  // Supabase Storage의 대표 메뉴 사진 경로 (공개 URL 자체는 저장하지 않는다)
+  image_path?: string | null
   // 지역 정보 (모두 선택사항)
   sido?: string | null
   sigungu?: string | null

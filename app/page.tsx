@@ -19,6 +19,7 @@ import type { Delivery, SortKey } from '@/lib/types'
 import { SIDO_LIST, getSigunguList, formatRegion } from '@/lib/regions'
 import Header from '@/components/Header'
 import StarRating from '@/components/StarRating'
+import { getDeliveryImageUrl } from '@/lib/deliveryImage'
 
 export default function ListPage() {
   // 공개 화면 — 로그인 여부만 확인하고 리다이렉트하지 않는다
@@ -204,14 +205,25 @@ export default function ListPage() {
             {filteredItems.map((item) => {
               const region = formatRegion(item.sido, item.sigungu)
               const repMenu = getRepresentativeMenu(item)
+              const imageUrl = getDeliveryImageUrl(item.image_path)
               const extraMenuCount = Math.max((item.menus?.length ?? 0) - 1, 0)
               return (
                 <div
                   key={item.id}
                   onClick={() => router.push(`/delivery/${item.id}`)}
-                  className="bg-white p-5 rounded-2xl border border-sky-100 hover:border-sky-300 shadow-sm hover:shadow-md transition cursor-pointer flex flex-col justify-between"
+                  className="bg-white p-5 rounded-2xl border border-sky-100 hover:border-sky-300 shadow-sm hover:shadow-md transition cursor-pointer flex flex-col justify-between overflow-hidden"
                 >
                   <div>
+                    {imageUrl && (
+                      <div className="-mx-5 -mt-5 mb-4 aspect-[4/3] bg-slate-100 overflow-hidden">
+                        <img
+                          src={imageUrl}
+                          alt={`${repMenu?.name || item.name} 대표 메뉴`}
+                          loading="lazy"
+                          className="w-full h-full object-cover transition-transform duration-300 hover:scale-[1.02]"
+                        />
+                      </div>
+                    )}
                     <div className="flex justify-between items-start mb-2">
                       <span className="text-xs font-sans px-2.5 py-1 bg-sky-100 text-sky-800 rounded-md font-medium">
                         {CATEGORY_EMOJI[item.category]

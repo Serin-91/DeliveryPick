@@ -9,6 +9,9 @@ ALTER TABLE public.deliveries ADD COLUMN IF NOT EXISTS user_nickname text;
 ALTER TABLE public.deliveries ADD COLUMN IF NOT EXISTS sido text;
 ALTER TABLE public.deliveries ADD COLUMN IF NOT EXISTS sigungu text;
 
+-- 대표 메뉴 사진은 Storage의 객체 경로만 저장한다 (공개 URL/바이너리는 DB에 저장하지 않음)
+ALTER TABLE public.deliveries ADD COLUMN IF NOT EXISTS image_path text;
+
 -- 지역 기반 랜덤 추천("오늘 뭐 먹지?") 조회 성능용 인덱스
 CREATE INDEX IF NOT EXISTS deliveries_region_idx ON public.deliveries (sido, sigungu);
 
@@ -184,3 +187,47 @@ $$;
 
 REVOKE ALL ON FUNCTION public.replace_delivery_menus(uuid, jsonb) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.replace_delivery_menus(uuid, jsonb) TO authenticated;
+
+-- ============================================================
+-- 7. 대표 메뉴 사진 Storage (공개 조회, 작성자 폴더만 쓰기)
+-- ============================================================
+
+INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+VALUES (
+  'delivery-images',
+  'delivery-images',
+  true,
+  1048576,
+  ARRAY['image/jpeg']
+)
+ON CONFLICT (id) DO UPDATE SET
+  public = EXCLUDED.public,
+  file_size_limit = EXCLUDED.file_size_limit,
+  allowed_mime_types = EXCLUDED.allowed_mime_types;
+
+-- 최종 파일명은 {로그인 사용자 UUID}/{맛집 UUID}/representative-*.jpg 형식이다.
+-- 사용자는 본인 UUID로 시작하는 폴더에만 업로드·수정·삭제할 수 있다.
+DROP POLICY IF EXISTS "대표메뉴 사진 업로드" ON storage.objects;
+CREATE POLICY "대표메뉴 사진 업로드" ON storage.objects FOR INSERT TO authenticated
+  WITH CHECK (
+    bucket_id = 'delivery-images'
+    AND (storage.foldername(name))[1] = auth.uid()::text
+  );
+
+DROP POLICY IF EXISTS "대표메뉴 사진 수정" ON storage.objects;
+CREATE POLICY "대표메뉴 사진 수정" ON storage.objects FOR UPDATE TO authenticated
+  USING (
+    bucket_id = 'delivery-images'
+    AND (storage.foldername(name))[1] = auth.uid()::text
+  )
+  WITH CHECK (
+    bucket_id = 'delivery-images'
+    AND (storage.foldername(name))[1] = auth.uid()::text
+  );
+
+DROP POLICY IF EXISTS "대표메뉴 사진 삭제" ON storage.objects;
+CREATE POLICY "대표메뉴 사진 삭제" ON storage.objects FOR DELETE TO authenticated
+  USING (
+    bucket_id = 'delivery-images'
+    AND (storage.foldername(name))[1] = auth.uid()::text
+  );

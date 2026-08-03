@@ -6,8 +6,14 @@ import { ArrowLeft, Edit3, Trash2 } from 'lucide-react'
 import { useAuth } from '@/lib/useAuth'
 import { supabase } from '@/lib/supabase'
 import type { Delivery } from '@/lib/types'
-import { CATEGORY_EMOJI, DELIVERY_SELECT_WITH_MENUS, normalizeDelivery } from '@/lib/types'
+import {
+  CATEGORY_EMOJI,
+  DELIVERY_SELECT_WITH_MENUS,
+  getRepresentativeMenu,
+  normalizeDelivery,
+} from '@/lib/types'
 import { formatRegion } from '@/lib/regions'
+import { getDeliveryImageUrl, removeDeliveryImage } from '@/lib/deliveryImage'
 import Header from '@/components/Header'
 import StarRating from '@/components/StarRating'
 
@@ -90,6 +96,8 @@ export default function DetailPage() {
 
   // 작성자 본인 여부 — 수정·삭제 UI 노출 조건
   const isOwner = Boolean(user && item && user.id === item.user_id)
+  const imageUrl = getDeliveryImageUrl(item.image_path)
+  const representativeMenu = getRepresentativeMenu(item)
 
   const handleDelete = async () => {
     // 버튼 숨김은 UX일 뿐이므로 실행 시점에 소유권을 다시 확인한다
@@ -110,6 +118,13 @@ export default function DetailPage() {
     if (error) {
       alert('삭제에 실패했습니다.')
       return
+    }
+    if (item.image_path) {
+      try {
+        await removeDeliveryImage(item.image_path)
+      } catch {
+        // 게시물 삭제는 완료됐으므로 저장소의 고아 파일 정리는 실패해도 사용자 흐름을 막지 않는다.
+      }
     }
     alert('삭제되었습니다.')
     router.push('/')
@@ -157,6 +172,23 @@ export default function DetailPage() {
               </p>
             )}
           </div>
+
+          {imageUrl && (
+            <figure className="space-y-2">
+              <div className="aspect-[4/3] overflow-hidden rounded-2xl bg-slate-100 border border-sky-100">
+                <img
+                  src={imageUrl}
+                  alt={`${representativeMenu?.name || item.name} 대표 메뉴`}
+                  className="w-full h-full object-cover"
+                />
+              </div>
+              {representativeMenu && (
+                <figcaption className="text-[11px] text-slate-500 font-sans text-center">
+                  대표 메뉴 · {representativeMenu.name}
+                </figcaption>
+              )}
+            </figure>
+          )}
 
           {item.menus && item.menus.length > 0 && (
             <div className="space-y-2 font-sans">
