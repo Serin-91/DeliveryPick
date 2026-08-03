@@ -211,19 +211,9 @@ export default function ListPage() {
                 <div
                   key={item.id}
                   onClick={() => router.push(`/delivery/${item.id}`)}
-                  className="bg-white p-5 rounded-2xl border border-sky-100 hover:border-sky-300 shadow-sm hover:shadow-md transition cursor-pointer flex flex-col justify-between overflow-hidden"
+                  className="bg-white p-5 rounded-2xl border border-sky-100 hover:border-sky-300 shadow-sm hover:shadow-md transition cursor-pointer flex flex-col justify-between"
                 >
                   <div>
-                    {imageUrl && (
-                      <div className="-mx-5 -mt-5 mb-4 aspect-[4/3] bg-slate-100 overflow-hidden">
-                        <img
-                          src={imageUrl}
-                          alt={`${repMenu?.name || item.name} 대표 메뉴`}
-                          loading="lazy"
-                          className="w-full h-full object-cover transition-transform duration-300 hover:scale-[1.02]"
-                        />
-                      </div>
-                    )}
                     <div className="flex justify-between items-start mb-2">
                       <span className="text-xs font-sans px-2.5 py-1 bg-sky-100 text-sky-800 rounded-md font-medium">
                         {CATEGORY_EMOJI[item.category]
@@ -233,25 +223,48 @@ export default function ListPage() {
                       <StarRating rating={item.rating} />
                     </div>
 
-                    <h3 className="text-lg font-bold text-slate-800 mb-1">{item.name}</h3>
+                    <div className="flex items-start gap-3">
+                      {imageUrl && (
+                        <div className="w-28 sm:w-32 aspect-[4/3] shrink-0 rounded-xl bg-slate-100 overflow-hidden border border-sky-100">
+                          <img
+                            src={imageUrl}
+                            alt={`${repMenu?.name || item.name} 대표 메뉴`}
+                            loading="lazy"
+                            className="w-full h-full object-cover transition-transform duration-300 hover:scale-[1.03]"
+                          />
+                        </div>
+                      )}
 
-                    {region && (
-                      <p className="text-[11px] text-slate-500 font-sans mb-1.5">📍 {region}</p>
-                    )}
+                      <div className="min-w-0 flex-1">
+                        <h3 className="text-lg font-bold text-slate-800 mb-1 line-clamp-1">
+                          {item.name}
+                        </h3>
 
-                    {repMenu && (
-                      <p className="text-base font-sans text-slate-800 mb-2 font-bold flex items-center flex-wrap gap-x-2">
-                        <span>🍴 {repMenu.name}</span>
-                        <span className="text-sky-700">{repMenu.price.toLocaleString()}원</span>
-                        {extraMenuCount > 0 && (
-                          <span className="text-[11px] font-medium text-slate-400">
-                            +{extraMenuCount}개 메뉴
-                          </span>
+                        {region && (
+                          <p className="text-[11px] text-slate-500 font-sans mb-1.5 line-clamp-1">
+                            📍 {region}
+                          </p>
                         )}
-                      </p>
-                    )}
 
-                    <p className="text-xs text-slate-500 font-sans line-clamp-1 mb-3">{item.memo}</p>
+                        {repMenu && (
+                          <p className="text-base font-sans text-slate-800 mb-2 font-bold flex items-center flex-wrap gap-x-2">
+                            <span className="line-clamp-1">🍴 {repMenu.name}</span>
+                            <span className="text-sky-700 shrink-0">
+                              {repMenu.price.toLocaleString()}원
+                            </span>
+                            {extraMenuCount > 0 && (
+                              <span className="text-[11px] font-medium text-slate-400 shrink-0">
+                                +{extraMenuCount}개 메뉴
+                              </span>
+                            )}
+                          </p>
+                        )}
+
+                        <p className="text-sm text-slate-500 font-sans line-clamp-1 mb-3">
+                          {item.memo}
+                        </p>
+                      </div>
+                    </div>
                   </div>
 
                   <div className="pt-3 border-t border-slate-100 flex justify-between items-center text-xs font-sans text-slate-600">

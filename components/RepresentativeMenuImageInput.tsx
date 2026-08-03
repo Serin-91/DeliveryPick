@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import Cropper from 'react-easy-crop'
 import type { Area } from 'react-easy-crop'
-import { Camera, Check, ImagePlus, RotateCcw, RotateCw, Trash2, X } from 'lucide-react'
+import { Camera, Check, ImagePlus, RefreshCcw, RotateCcw, RotateCw, Trash2, X } from 'lucide-react'
 import {
   cropAndCompressImage,
   DELIVERY_IMAGE_ASPECT,
@@ -80,6 +80,19 @@ export default function RepresentativeMenuImageInput({
     setCroppedPixels(null)
     setError('')
     setSourceUrl(url)
+  }
+
+  const normalizeRotation = (degrees: number) => ((degrees + 180) % 360 + 360) % 360 - 180
+
+  const rotateBy = (degrees: number) => {
+    setRotation((current) => normalizeRotation(current + degrees))
+  }
+
+  const resetAdjustments = () => {
+    setCrop({ x: 0, y: 0 })
+    setZoom(1)
+    setRotation(0)
+    setError('')
   }
 
   const handleFile = (file?: File) => {
@@ -179,7 +192,7 @@ export default function RepresentativeMenuImageInput({
           <span className="w-11 h-11 rounded-full bg-white shadow-sm flex items-center justify-center">
             <Camera className="w-5 h-5" />
           </span>
-          <span className="text-sm font-semibold">휴대폰에서 사진 선택</span>
+          <span className="text-sm font-semibold">사진 선택</span>
           <span className="text-[11px] text-slate-400">JPEG · PNG · WebP · 원본 최대 10MB</span>
         </button>
       )}
@@ -191,12 +204,12 @@ export default function RepresentativeMenuImageInput({
       {!sourceUrl && error && <p className="text-xs text-rose-500 font-medium">{error}</p>}
 
       {sourceUrl && (
-        <div className="fixed inset-0 z-[70] bg-slate-950/80 flex items-center justify-center p-3 sm:p-6">
+        <div className="fixed inset-0 z-[70] bg-slate-950/80 flex items-start sm:items-center justify-center p-3 sm:p-6 overflow-y-auto">
           <div
             role="dialog"
             aria-modal="true"
             aria-labelledby="image-crop-title"
-            className="bg-white w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden"
+            className="bg-white w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden my-auto"
           >
             <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
               <div>
@@ -216,7 +229,7 @@ export default function RepresentativeMenuImageInput({
               </button>
             </div>
 
-            <div className="relative h-[48vh] min-h-72 max-h-[520px] bg-slate-950">
+            <div className="relative h-[50vh] min-h-[320px] max-h-[560px] bg-slate-950">
               <Cropper
                 image={sourceUrl}
                 crop={crop}
@@ -224,8 +237,8 @@ export default function RepresentativeMenuImageInput({
                 rotation={rotation}
                 aspect={DELIVERY_IMAGE_ASPECT}
                 minZoom={1}
-                maxZoom={3}
-                zoomSpeed={0.12}
+                maxZoom={5}
+                zoomSpeed={0.08}
                 showGrid
                 onCropChange={setCrop}
                 onZoomChange={setZoom}
@@ -236,11 +249,13 @@ export default function RepresentativeMenuImageInput({
 
             <div className="p-4 space-y-3">
               <div className="flex items-center gap-3">
-                <span className="text-[11px] text-slate-500 shrink-0">확대</span>
+                <span className="text-[11px] text-slate-500 shrink-0 w-16 whitespace-nowrap">
+                  확대 {zoom.toFixed(1)}×
+                </span>
                 <input
                   type="range"
                   min={1}
-                  max={3}
+                  max={5}
                   step={0.01}
                   value={zoom}
                   onChange={(event) => setZoom(Number(event.target.value))}
@@ -249,11 +264,27 @@ export default function RepresentativeMenuImageInput({
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-2">
+              <div className="flex items-center gap-3">
+                <span className="text-[11px] text-slate-500 shrink-0 w-16 whitespace-nowrap">
+                  회전 {Math.round(rotation)}°
+                </span>
+                <input
+                  type="range"
+                  min={-180}
+                  max={180}
+                  step={1}
+                  value={rotation}
+                  onChange={(event) => setRotation(Number(event.target.value))}
+                  aria-label="사진 회전 각도"
+                  className="w-full accent-sky-600"
+                />
+              </div>
+
+              <div className="grid grid-cols-3 gap-2">
                 <button
                   type="button"
                   disabled={processing}
-                  onClick={() => setRotation((current) => current - 90)}
+                  onClick={() => rotateBy(-90)}
                   className="flex items-center justify-center gap-1.5 py-2 border border-slate-200 text-slate-600 rounded-xl text-xs font-semibold hover:bg-slate-50 disabled:opacity-50"
                 >
                   <RotateCcw className="w-4 h-4" /> 왼쪽 회전
@@ -261,10 +292,18 @@ export default function RepresentativeMenuImageInput({
                 <button
                   type="button"
                   disabled={processing}
-                  onClick={() => setRotation((current) => current + 90)}
+                  onClick={() => rotateBy(90)}
                   className="flex items-center justify-center gap-1.5 py-2 border border-slate-200 text-slate-600 rounded-xl text-xs font-semibold hover:bg-slate-50 disabled:opacity-50"
                 >
                   <RotateCw className="w-4 h-4" /> 오른쪽 회전
+                </button>
+                <button
+                  type="button"
+                  disabled={processing}
+                  onClick={resetAdjustments}
+                  className="flex items-center justify-center gap-1.5 py-2 border border-slate-200 text-slate-600 rounded-xl text-xs font-semibold hover:bg-slate-50 disabled:opacity-50"
+                >
+                  <RefreshCcw className="w-4 h-4" /> 초기화
                 </button>
               </div>
 
