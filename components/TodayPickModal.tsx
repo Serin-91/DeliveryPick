@@ -12,6 +12,7 @@ import {
 } from '@/lib/types'
 import type { Delivery } from '@/lib/types'
 import { supabase } from '@/lib/supabase'
+import { getDeliveryImageUrl } from '@/lib/deliveryImage'
 import StarRating from '@/components/StarRating'
 
 // 주사위 눈(1~6)을 3x3 격자 위 점 위치로 매핑
@@ -153,6 +154,8 @@ export default function TodayPickModal({ onClose }: { onClose: () => void }) {
     }, 1300)
   }
 
+  const resultImageUrl = getDeliveryImageUrl(result?.image_path)
+
   return (
     <div
       className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-start sm:items-center justify-center p-4 overflow-y-auto"
@@ -274,13 +277,30 @@ export default function TodayPickModal({ onClose }: { onClose: () => void }) {
               <StarRating rating={result.rating} />
             </div>
 
-            <h3 className="font-serif text-xl font-bold text-slate-800">{result.name}</h3>
+            <div className={resultImageUrl ? 'flex items-center gap-3' : ''}>
+              {resultImageUrl && (
+                <div className="w-24 aspect-[4/3] shrink-0 rounded-xl overflow-hidden bg-slate-100 border border-sky-100">
+                  <img
+                    src={resultImageUrl}
+                    alt={`${getRepresentativeMenu(result)?.name || result.name} 대표 메뉴`}
+                    loading="lazy"
+                    className="w-full h-full object-cover"
+                  />
+                </div>
+              )}
 
-            {formatRegion(result.sido, result.sigungu) && (
-              <p className="text-xs text-slate-500">
-                📍 {formatRegion(result.sido, result.sigungu)}
-              </p>
-            )}
+              <div className="min-w-0 flex-1">
+                <h3 className="font-serif text-xl font-bold text-slate-800 line-clamp-2">
+                  {result.name}
+                </h3>
+
+                {formatRegion(result.sido, result.sigungu) && (
+                  <p className="text-xs text-slate-500 mt-1">
+                    📍 {formatRegion(result.sido, result.sigungu)}
+                  </p>
+                )}
+              </div>
+            </div>
 
             {(() => {
               const repMenu = getRepresentativeMenu(result)
