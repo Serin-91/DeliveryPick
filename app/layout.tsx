@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import './globals.css'
+import ScrollToTopButton from '@/components/ScrollToTopButton'
 
 export const metadata: Metadata = {
   title: '딜리버리픽',
@@ -13,7 +14,10 @@ export default function RootLayout({
 }) {
   return (
     <html lang="ko">
-      <body className="font-serif">{children}</body>
+      <body className="font-serif">
+        {children}
+        <ScrollToTopButton />
+      </body>
     </html>
   )
 }
