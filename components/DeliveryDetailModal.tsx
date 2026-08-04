@@ -5,7 +5,7 @@ import { X, Heart, ShieldCheck, MapPin, ExternalLink, AlertTriangle, Edit3, Tras
 import Link from 'next/link'
 import type { Delivery } from '@/lib/types'
 import StarRating from './StarRating'
-import { getDeliveryImageUrl } from '@/lib/deliveryImage'
+import { getDeliveryImageUrl, removeDeliveryImage } from '@/lib/deliveryImage'
 import { useAuth } from '@/lib/useAuth'
 import { supabase } from '@/lib/supabase'
 
@@ -80,7 +80,21 @@ export default function DeliveryDetailModal({
   const isOwner = Boolean(user && user.id === delivery.user_id)
 
   const handleDelete = async () => {
-    if (!user || !isOwner || !confirm('정말 이 맛집 리뷰를 삭제하시겠습니까?')) return
+    if (!user || !isOwner) return
+
+    // root 게시물이면 다른 사용자 리뷰도 DB CASCADE로 함께 삭제되므로 미리 개수를 확인해 경고한다
+    let confirmMessage = '정말 이 맛집 리뷰를 삭제하시겠습니까?'
+    if (!delivery.root_delivery_id) {
+      const { count } = await supabase
+        .from('deliveries')
+        .select('id', { count: 'exact', head: true })
+        .eq('root_delivery_id', delivery.id)
+      if (count && count > 0) {
+        confirmMessage = `이 맛집을 삭제하면 다른 사용자가 남긴 리뷰 ${count}건도 함께 영구 삭제됩니다.\n정말로 삭제하시겠습니까?`
+      }
+    }
+    if (!confirm(confirmMessage)) return
+
     setDeleting(true)
     const { error } = await supabase
       .from('deliveries')
@@ -91,6 +105,9 @@ export default function DeliveryDetailModal({
     if (error) {
       alert('삭제 처리에 실패했습니다.')
       return
+    }
+    if (delivery.image_path) {
+      await removeDeliveryImage(delivery.image_path).catch(() => undefined)
     }
     onDeleted?.(delivery.id)
     onClose()

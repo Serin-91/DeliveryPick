@@ -117,7 +117,7 @@ export default function ReviewPage() {
     }
   }
 
-  if (loading || authLoading) return <div className="min-h-screen grid place-items-center text-sm text-sky-600">불러오는 중...</div>
+  if (loading || authLoading || !user) return <div className="min-h-screen grid place-items-center text-sm text-sky-600">불러오는 중...</div>
   if (!root) return <div className="min-h-screen grid place-items-center text-sm text-slate-500">기준 게시물을 찾을 수 없습니다.</div>
 
   return (

@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { X, Upload, Sparkles, ShieldCheck, CheckCircle, AlertCircle } from 'lucide-react'
+import { supabase } from '@/lib/supabase'
 
 interface ParsedReceipt {
   storeName?: string
@@ -10,6 +11,29 @@ interface ParsedReceipt {
   totalAmount?: number
   menus?: { name: string; price?: number }[]
   orderNumber?: string
+}
+
+// 서버 OCR 결과(snake_case)를 폼에서 쓰는 camelCase 형태로 변환한다
+function toParsedReceipt(result: any): ParsedReceipt {
+  return {
+    storeName: result?.store_name,
+    address: result?.address,
+    appName: result?.app_name,
+    totalAmount: result?.total_price,
+    orderNumber: result?.order_number,
+    menus: Array.isArray(result?.menus)
+      ? result.menus.map((m: any) => ({ name: m.name, price: m.price }))
+      : undefined,
+  }
+}
+
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(reader.result as string)
+    reader.onerror = () => reject(new Error('사진을 읽지 못했습니다.'))
+    reader.readAsDataURL(file)
+  })
 }
 
 interface ReceiptScannerModalProps {
@@ -53,12 +77,21 @@ export default function ReceiptScannerModal({
     setErrorMsg(null)
 
     try {
-      const formData = new FormData()
-      formData.append('file', file)
+      const { data: sessionData } = await supabase.auth.getSession()
+      const accessToken = sessionData.session?.access_token
+      if (!accessToken) {
+        throw new Error('영수증 인식은 로그인 후 이용할 수 있습니다.')
+      }
+
+      const base64Image = await fileToBase64(file)
 
       const res = await fetch('/api/ai/ocr', {
         method: 'POST',
-        body: formData,
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ base64Image, mimeType: file.type || 'image/jpeg' }),
       })
       const data = await res.json()
 
@@ -67,7 +100,7 @@ export default function ReceiptScannerModal({
       }
 
       alert('🥇 3초 만에 AI 영수증 분석이 완료되었습니다!')
-      onScanSuccess(data.parsedData)
+      onScanSuccess(toParsedReceipt(data.data))
       onClose()
     } catch (err: any) {
       setErrorMsg(err.message || '영수증을 읽지 못했습니다. 선명한 주문내역 사진으로 다시 시도해 주세요.')

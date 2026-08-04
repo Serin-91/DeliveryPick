@@ -47,21 +47,19 @@ export default function TodayPickModal({
       setPickedDelivery(selected)
       setRolling(false)
 
-      // Gemini AI 추천 메시지 호출 API
+      // Gemini AI 추천 메시지 호출 API (이미 뽑은 selected 1곳에 대한 추천사만 요청)
       try {
         const res = await fetch('/api/ai/recommend', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            deliveryName: selected.name,
-            category: selected.category,
-            memo: selected.memo,
-            userRegionName,
+            deliveries: [selected],
+            userLocationName: userRegionName,
           }),
         })
         const data = await res.json()
-        if (data.recommendation) {
-          setAiComment(data.recommendation)
+        if (data.data?.reason) {
+          setAiComment(data.data.reason)
         } else {
           setAiComment(`"오늘 같은 날엔 고민 없이 ${selected.name}에서 맛있는 ${selected.category} 어떠세요?"`)
         }

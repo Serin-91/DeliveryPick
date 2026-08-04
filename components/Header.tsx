@@ -44,11 +44,11 @@ export default function Header({
     <header className="sticky top-0 z-40 w-full bg-white/80 backdrop-blur-md border-b border-white/60 shadow-sm">
       <div className="max-w-6xl mx-auto px-4 h-20 flex items-center justify-between gap-2">
         {/* 로고 */}
-        <Link href="/" className="flex items-center gap-2 group shrink-0">
-          <div className="p-1.5 rounded-xl bg-blue-50 group-hover:bg-blue-100 transition-colors">
-            <Bike className="w-7 h-7 text-blue-600" />
+        <Link href="/" className="flex items-center gap-1.5 sm:gap-2 group shrink-0 min-w-0">
+          <div className="p-1.5 rounded-xl bg-blue-50 group-hover:bg-blue-100 transition-colors shrink-0">
+            <Bike className="w-6 h-6 sm:w-7 sm:h-7 text-blue-600" />
           </div>
-          <span className="font-extrabold text-3xl sm:text-4xl tracking-tight text-slate-800 font-serif group-hover:text-blue-600 transition-colors">
+          <span className="font-extrabold text-lg sm:text-3xl lg:text-4xl tracking-tight text-slate-800 font-serif group-hover:text-blue-600 transition-colors truncate">
             DeliveryPick
           </span>
         </Link>
@@ -70,7 +70,7 @@ export default function Header({
         </div>
 
         {/* 우측: 상단 콤팩트 3D 파스텔 무지개 버튼 & 프로필 */}
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
           {onOpenTodayPick && (
             <button
               onClick={onOpenTodayPick}

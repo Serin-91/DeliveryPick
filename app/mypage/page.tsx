@@ -8,7 +8,7 @@ import { supabase } from '@/lib/supabase'
 import Header from '@/components/Header'
 import BottomNav from '@/components/BottomNav'
 import DeliveryDetailModal from '@/components/DeliveryDetailModal'
-import { getDeliveryImageUrl } from '@/lib/deliveryImage'
+import { getDeliveryImageUrl, removeDeliveryImage } from '@/lib/deliveryImage'
 import type { Delivery } from '@/lib/types'
 import { normalizeDelivery, DELIVERY_SELECT_WITH_MENUS, getReviewGrade } from '@/lib/types'
 import { getUserAvatarUrl } from '@/lib/userAvatar'
@@ -182,6 +182,10 @@ function MyPageContent() {
 
     setUploadingAvatar(true)
     try {
+      // 이전 아바타 파일 목록을 먼저 확보해 두고, 새 업로드가 끝나면 정리한다 (Storage 고아 파일 방지)
+      const { data: existingFiles } = await supabase.storage.from('avatars').list(user.id)
+      const previousPaths = (existingFiles || []).map((f) => `${user.id}/${f.name}`)
+
       const fileExt = file.name.split('.').pop()
       const filePath = `${user.id}/avatar-${Date.now()}.${fileExt}`
 
@@ -204,6 +208,10 @@ function MyPageContent() {
         .update({ user_avatar_url: publicUrl })
         .eq('user_id', user.id)
       if (reviewAvatarError) throw reviewAvatarError
+
+      if (previousPaths.length > 0) {
+        await supabase.storage.from('avatars').remove(previousPaths).catch(() => undefined)
+      }
 
       setAvatarUrl(publicUrl)
       alert('🖼️ 프로필 사진이 성공적으로 수정되었습니다!')
@@ -288,9 +296,20 @@ function MyPageContent() {
         setIsNicknameVerified(true)
       }
     } catch {
-      // 에러 시 통과 처리
-      setNicknameSuccess('사용 가능한 닉네임입니다.')
-      setIsNicknameVerified(true)
+      // RPC 예외 시에도 fallback 중복 체크는 그대로 수행한다 (fail-open 방지)
+      const { data: existingDeliveries } = await supabase
+        .from('deliveries')
+        .select('id')
+        .ilike('user_nickname', trimmed)
+        .limit(1)
+
+      if (existingDeliveries && existingDeliveries.length > 0) {
+        setNicknameError('이미 사용 중인 닉네임입니다.')
+        setIsNicknameVerified(false)
+      } else {
+        setNicknameSuccess('사용 가능한 닉네임입니다.')
+        setIsNicknameVerified(true)
+      }
     } finally {
       setCheckingNickname(false)
     }
@@ -320,6 +339,22 @@ function MyPageContent() {
 
     setSavingNickname(true)
     try {
+      // profiles 테이블의 닉네임 고유 제약을 먼저 통과시켜야 auth/deliveries가 서로 어긋나지 않는다.
+      const { error: profileError } = await supabase
+        .from('profiles')
+        .upsert({ user_id: user.id, nickname: trimmed }, { onConflict: 'user_id' })
+
+      if (profileError) {
+        if (profileError.code === '23505') {
+          setNicknameError('이미 사용 중인 닉네임입니다.')
+          setIsNicknameVerified(false)
+          alert('이미 사용 중인 닉네임입니다.')
+        } else {
+          alert('닉네임 저장에 실패했습니다. 잠시 후 다시 시도해 주세요.')
+        }
+        return
+      }
+
       const nowIso = new Date().toISOString()
       const { error } = await supabase.auth.updateUser({
         data: {
@@ -401,11 +436,27 @@ function MyPageContent() {
 
   // 내가 쓴 리뷰 삭제
   const handleDeleteMyReview = async (id: string) => {
-    if (!confirm('정말 이 맛집 리뷰를 삭제하시겠습니까?')) return
+    const target = myReviews.find((item) => item.id === id)
+
+    // root 게시물이면 다른 사용자 리뷰도 DB CASCADE로 함께 삭제되므로 미리 개수를 확인해 경고한다
+    let confirmMessage = '정말 이 맛집 리뷰를 삭제하시겠습니까?'
+    if (target && !target.root_delivery_id) {
+      const { count } = await supabase
+        .from('deliveries')
+        .select('id', { count: 'exact', head: true })
+        .eq('root_delivery_id', id)
+      if (count && count > 0) {
+        confirmMessage = `이 맛집을 삭제하면 다른 사용자가 남긴 리뷰 ${count}건도 함께 영구 삭제됩니다.\n정말로 삭제하시겠습니까?`
+      }
+    }
+    if (!confirm(confirmMessage)) return
     const { error } = await supabase.from('deliveries').delete().eq('id', id)
     if (error) {
       alert('삭제 처리 실패했습니다.')
     } else {
+      if (target?.image_path) {
+        await removeDeliveryImage(target.image_path).catch(() => undefined)
+      }
       setMyReviews((prev) => prev.filter((item) => item.id !== id))
       alert('삭제가 완료되었습니다.')
     }

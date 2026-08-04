@@ -182,7 +182,7 @@ export default function RepresentativeMenuImageInput({
               업로드 미리보기
             </span>
           </div>
-          <div className="grid grid-cols-2 gap-2">
+          <div className={`grid gap-2 ${value.blob && existingImageUrl ? 'grid-cols-3' : 'grid-cols-2'}`}>
             <button
               type="button"
               disabled={disabled}
@@ -191,6 +191,16 @@ export default function RepresentativeMenuImageInput({
             >
               <ImagePlus className="w-4 h-4" /> 다시 선택
             </button>
+            {value.blob && existingImageUrl && (
+              <button
+                type="button"
+                disabled={disabled}
+                onClick={() => onChange({ blob: null, removeExisting: false })}
+                className="flex items-center justify-center gap-1.5 py-2.5 border border-slate-200 text-slate-600 rounded-xl text-xs font-semibold hover:bg-slate-50 transition disabled:opacity-50"
+              >
+                <X className="w-4 h-4" /> 선택 취소
+              </button>
+            )}
             <button
               type="button"
               disabled={disabled}

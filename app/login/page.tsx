@@ -13,6 +13,7 @@ export default function LoginPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
+  const [showGoogleNotice, setShowGoogleNotice] = useState(false)
 
   // 이메일 로그인
   const handleEmailLogin = async (e: React.FormEvent) => {
@@ -42,6 +43,11 @@ export default function LoginPage() {
   const handleSocialLogin = async (provider: SocialProvider) => {
     if (provider === 'kakao') {
       window.location.assign('/api/auth/kakao/start')
+      return
+    }
+
+    if (provider === 'google') {
+      setShowGoogleNotice(true)
       return
     }
 
@@ -83,10 +89,13 @@ export default function LoginPage() {
           <button
             type="button"
             onClick={() => handleSocialLogin('google')}
-            className="w-full py-3 px-4 rounded-2xl bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 font-bold text-xs flex items-center justify-center gap-2 shadow-sm transition-all"
+            className="w-full py-3 px-4 rounded-2xl bg-white border border-slate-200 text-slate-400 font-bold text-xs flex items-center justify-center gap-2 shadow-sm transition-all cursor-not-allowed opacity-70"
           >
             <span>🌐 Google 계정으로 로그인 / 회원가입</span>
           </button>
+          {showGoogleNotice && (
+            <p className="text-center text-[11px] text-slate-400">서비스 준비중입니다</p>
+          )}
         </div>
 
         <div className="relative my-6 text-center">

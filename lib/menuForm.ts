@@ -15,9 +15,17 @@ export function parsePriceInput(value: string): number {
 
 // 등록/수정 폼에서 다루는 메뉴 한 줄 (입력 중에는 가격이 문자열)
 export interface MenuFormRow {
+  id: string
   name: string
   price: string
   is_representative: boolean
+}
+
+// 중간 줄 삭제 시 인덱스가 바뀌어도 각 줄의 입력 포커스를 안정적으로 유지하기 위한 고유 id
+export function createRowId(): string {
+  return typeof crypto !== 'undefined' && 'randomUUID' in crypto
+    ? crypto.randomUUID()
+    : `row-${Math.random().toString(36).slice(2)}`
 }
 
 // DB에 저장할 형태
@@ -30,7 +38,7 @@ export interface MenuPayloadRow {
 
 // 신규 등록 시 기본 1줄 (첫 줄이 곧 대표 메뉴)
 export function createInitialMenuRows(): MenuFormRow[] {
-  return [{ name: '', price: '', is_representative: true }]
+  return [{ id: createRowId(), name: '', price: '', is_representative: true }]
 }
 
 // DB에서 불러온 메뉴를 폼 입력값으로 변환
@@ -41,6 +49,7 @@ export function toMenuRows(menus: DeliveryMenu[] | undefined | null): MenuFormRo
     .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
     .slice(0, MAX_MENUS)
     .map((m) => ({
+      id: createRowId(),
       name: m.name ?? '',
       price: m.price === null || m.price === undefined ? '' : formatPriceInput(m.price),
       is_representative: Boolean(m.is_representative),
@@ -81,8 +90,8 @@ export function validateMenuRows(rows: MenuFormRow[]): MenuValidation {
   if (touched.some((r) => r.price.trim() === '')) {
     return { ok: false, error: '가격을 입력하지 않은 메뉴가 있습니다.' }
   }
-  if (touched.some((r) => !Number.isInteger(parsePriceInput(r.price)) || parsePriceInput(r.price) < 0)) {
-    return { ok: false, error: '가격은 0원 이상의 정수로 입력해 주세요.' }
+  if (touched.some((r) => !Number.isInteger(parsePriceInput(r.price)) || parsePriceInput(r.price) <= 0)) {
+    return { ok: false, error: '가격은 1원 이상의 정수로 입력해 주세요.' }
   }
 
   const repCount = touched.filter((r) => r.is_representative).length

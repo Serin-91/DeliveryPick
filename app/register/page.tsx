@@ -8,6 +8,9 @@ import Header from '@/components/Header'
 import BottomNav from '@/components/BottomNav'
 import ReceiptScannerModal from '@/components/ReceiptScannerModal'
 import StarRating from '@/components/StarRating'
+import LoginRequiredModal from '@/components/LoginRequiredModal'
+import RegionMenuFields from '@/components/RegionMenuFields'
+import type { RegionValue } from '@/components/RegionMenuFields'
 import { FORM_CATEGORIES, APP_NAMES } from '@/lib/types'
 import { useAuth } from '@/lib/useAuth'
 import { supabase } from '@/lib/supabase'
@@ -42,15 +45,22 @@ function parseCommaNumber(value: string): number {
 }
 
 export default function RegisterPage() {
-  const { user } = useAuth()
+  const { user, loading: authLoading } = useAuth()
   const router = useRouter()
 
   const [ocrModalOpen, setOcrModalOpen] = useState(false)
+  const [showLoginModal, setShowLoginModal] = useState(false)
+
+  // 로그인 여부 확인이 끝났는데 비회원이면 즉시 안내 모달을 띄운다.
+  useEffect(() => {
+    if (!authLoading && !user) setShowLoginModal(true)
+  }, [authLoading, user])
 
   // 폼 필드
   const [name, setName] = useState('')
   const [category, setCategory] = useState('')
   const [appName, setAppName] = useState('')
+  const [region, setRegion] = useState<RegionValue>({ sido: '', sigungu: '' })
   const [minOrder, setMinOrder] = useState('')
   const [rating, setRating] = useState(0)
   const [memo, setMemo] = useState('')
@@ -157,8 +167,7 @@ export default function RegisterPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!user) {
-      alert('맛집 등록은 로그인 후 이용하실 수 있습니다.')
-      router.push('/login')
+      setShowLoginModal(true)
       return
     }
 
@@ -172,6 +181,10 @@ export default function RegisterPage() {
     }
     if (!appName) {
       alert('주요 이용 배달앱을 선택해 주세요.')
+      return
+    }
+    if (!region.sido || !region.sigungu) {
+      alert('지역(시/도, 시/군/구)을 선택해 주세요.')
       return
     }
     if (!minOrder.trim() || parseCommaNumber(minOrder) <= 0) {
@@ -217,6 +230,7 @@ export default function RegisterPage() {
       .select('id,name')
       .is('root_delivery_id', null)
       .ilike('name', `%${duplicateQuery}%`)
+      .eq('is_hidden', false)
       .limit(10)
     const duplicate = duplicateCandidates?.find(
       (store) => store.name.replace(/\s+/g, '').toLocaleLowerCase('ko-KR') === normalizedInputName
@@ -237,6 +251,8 @@ export default function RegisterPage() {
           name: name.trim(),
           category,
           app_name: appName,
+          sido: region.sido,
+          sigungu: region.sigungu,
           min_order: parseCommaNumber(minOrder),
           rating,
           memo: memo.trim(),
@@ -318,6 +334,19 @@ export default function RegisterPage() {
           <span>홈으로 돌아가기</span>
         </Link>
 
+        {!authLoading && !user && (
+          <div className="mb-4 flex items-center justify-between gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-semibold text-amber-700">
+            <span>🔒 맛집 등록은 로그인 후 이용하실 수 있습니다.</span>
+            <button
+              type="button"
+              onClick={() => setShowLoginModal(true)}
+              className="shrink-0 rounded-lg bg-amber-500 px-3 py-1.5 text-white hover:bg-amber-600"
+            >
+              로그인 / 회원가입
+            </button>
+          </div>
+        )}
+
         <div className="bg-white/80 backdrop-blur-xl border border-white/80 rounded-3xl p-6 sm:p-8 shadow-sm">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 pb-4 border-b border-slate-100">
             <div>
@@ -358,7 +387,7 @@ export default function RegisterPage() {
                   </div>
                   {!searchingStores && storeSuggestions.map((store) => {
                     const representative = store.delivery_menus?.find((menu) => menu.is_representative)?.name
-                    const region = [store.sido, store.sigungu].filter(Boolean).join(' ')
+                    const regionLabel = [store.sido, store.sigungu].filter(Boolean).join(' ')
                     return (
                       <button
                         key={store.id}
@@ -369,7 +398,7 @@ export default function RegisterPage() {
                         <span className="min-w-0">
                           <strong className="block truncate text-sm text-slate-800">{store.name}</strong>
                           <span className="block truncate text-[11px] text-slate-500">
-                            {[region, representative && `대표 메뉴 ${representative}`].filter(Boolean).join(' · ') || '기존 등록 게시물'}
+                            {[regionLabel, representative && `대표 메뉴 ${representative}`].filter(Boolean).join(' · ') || '기존 등록 게시물'}
                           </span>
                         </span>
                         <span className="shrink-0 rounded-lg bg-sky-600 px-2.5 py-1.5 text-[11px] font-bold text-white">리뷰 보기</span>
@@ -414,6 +443,11 @@ export default function RegisterPage() {
                 </select>
               </div>
             </div>
+
+            <RegionMenuFields
+              value={region}
+              onChange={(patch) => setRegion((prev) => ({ ...prev, ...patch }))}
+            />
 
             {/* 최소주문금액 & 평점 */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -540,6 +574,14 @@ export default function RegisterPage() {
         onClose={() => setOcrModalOpen(false)}
         onScanSuccess={handleOcrSuccess}
       />
+
+      {showLoginModal && (
+        <LoginRequiredModal
+          description={'맛집 등록은 로그인 후 이용하실 수 있습니다.\n로그인하고 나만의 인생 배달 맛집을 등록해보세요.'}
+          next="/register"
+          onClose={() => setShowLoginModal(false)}
+        />
+      )}
     </div>
   )
 }

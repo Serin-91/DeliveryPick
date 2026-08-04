@@ -30,6 +30,7 @@ function SignUpForm() {
   const [checkingNickname, setCheckingNickname] = useState(false)
   const [isNicknameVerified, setIsNicknameVerified] = useState(false)
   const [socialLoading, setSocialLoading] = useState<SocialProvider | null>(null)
+  const [showGoogleNotice, setShowGoogleNotice] = useState(false)
   const [socialUserId, setSocialUserId] = useState<string | null>(null)
   const [checkingSocialProfile, setCheckingSocialProfile] = useState(isSocialNicknameSetup)
 
@@ -39,6 +40,11 @@ function SignUpForm() {
   const handleSocialSignUp = async (provider: SocialProvider) => {
     if (provider === 'kakao') {
       window.location.assign(`/api/auth/kakao/start?next=${encodeURIComponent(next)}`)
+      return
+    }
+
+    if (provider === 'google') {
+      setShowGoogleNotice(true)
       return
     }
 
@@ -349,11 +355,13 @@ function SignUpForm() {
           <button
             type="button"
             onClick={() => handleSocialSignUp('google')}
-            disabled={socialLoading !== null}
-            className="w-full py-3 px-4 rounded-2xl bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 font-bold text-sm flex items-center justify-center gap-2 shadow-sm transition-all disabled:opacity-50"
+            className="w-full py-3 px-4 rounded-2xl bg-white border border-slate-200 text-slate-400 font-bold text-sm flex items-center justify-center gap-2 shadow-sm transition-all cursor-not-allowed opacity-70"
           >
-            🌐 {socialLoading === 'google' ? 'Google 연결 중...' : 'Google 계정으로 로그인 / 회원가입'}
+            🌐 Google 계정으로 로그인 / 회원가입
           </button>
+          {showGoogleNotice && (
+            <p className="text-center text-[11px] text-slate-400">서비스 준비중입니다</p>
+          )}
         </div>
 
         <div className="relative my-6 text-center">

@@ -41,6 +41,7 @@ export default function DetailPage() {
       .from('deliveries')
       .select('user_id,image_path,is_verified,user_avatar_url,created_at')
       .in('user_id', ids)
+      .eq('is_hidden', false)
       .order('created_at', { ascending: false })
     if (!data) return
     const counts: Record<string, { photo: number; receipt: number }> = {}
@@ -194,7 +195,12 @@ export default function DetailPage() {
       alert('삭제 권한이 없습니다.')
       return
     }
-    if (!confirm('정말로 이 맛집을 삭제하시겠습니까?')) return
+    // root 게시물을 지우면 다른 사용자들이 남긴 리뷰도 DB CASCADE로 함께 삭제되므로 명확히 경고한다
+    const confirmMessage =
+      relatedReviews.length > 0
+        ? `이 맛집을 삭제하면 다른 사용자가 남긴 리뷰 ${relatedReviews.length}건도 함께 영구 삭제됩니다.\n정말로 삭제하시겠습니까?`
+        : '정말로 이 맛집을 삭제하시겠습니까?'
+    if (!confirm(confirmMessage)) return
 
     setDeleting(true)
     const { error } = await supabase

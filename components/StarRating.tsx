@@ -18,7 +18,6 @@ export default function StarRating({
 }) {
   const isEditable = !!onChange || !!editable
   const [hoverValue, setHoverValue] = useState<number | null>(null)
-  const [hasSelected, setHasSelected] = useState(false)
 
   const displayRating = hoverValue !== null ? hoverValue : rating
 
@@ -28,12 +27,11 @@ export default function StarRating({
     if (!isEditable || !onChange) return
     const value = isLeftHalf ? starIndex + 0.5 : starIndex + 1
     onChange(value)
-    setHasSelected(true)
     setHoverValue(null)
   }
 
   const handleHover = (starIndex: number, isLeftHalf: boolean) => {
-    if (!isEditable || hasSelected) return
+    if (!isEditable) return
     setHoverValue(isLeftHalf ? starIndex + 0.5 : starIndex + 1)
   }
 

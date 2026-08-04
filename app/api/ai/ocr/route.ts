@@ -1,8 +1,14 @@
 import { NextResponse } from 'next/server'
 import { parseReceiptWithGemini } from '@/lib/gemini'
+import { getAuthenticatedUser } from '@/lib/apiAuth'
 
 export async function POST(req: Request) {
   try {
+    const user = await getAuthenticatedUser(req)
+    if (!user) {
+      return NextResponse.json({ error: '로그인 후 이용할 수 있습니다.' }, { status: 401 })
+    }
+
     const { base64Image, mimeType } = await req.json()
 
     if (!base64Image) {

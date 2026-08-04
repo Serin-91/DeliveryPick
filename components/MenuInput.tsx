@@ -1,7 +1,7 @@
 'use client'
 
 import { Plus, X } from 'lucide-react'
-import { MAX_MENUS, formatPriceInput } from '@/lib/menuForm'
+import { MAX_MENUS, formatPriceInput, createRowId } from '@/lib/menuForm'
 import type { MenuFormRow } from '@/lib/menuForm'
 
 export default function MenuInput({
@@ -15,7 +15,7 @@ export default function MenuInput({
 
   const addRow = () => {
     if (!canAdd) return
-    onChange([...rows, { name: '', price: '', is_representative: false }])
+    onChange([...rows, { id: createRowId(), name: '', price: '', is_representative: false }])
   }
 
   const removeRow = (index: number) => {
@@ -46,7 +46,7 @@ export default function MenuInput({
       <div className="space-y-2">
         {rows.map((row, idx) => (
           <div
-            key={idx}
+            key={row.id}
             className={`p-4 rounded-2xl border space-y-3 ${
               row.is_representative ? 'border-sky-300 bg-sky-50/60' : 'border-slate-200 bg-slate-50/60'
             }`}
