@@ -115,6 +115,16 @@ export async function cropAndCompressImage(
   return output
 }
 
+/** 리뷰 사진을 자르지 않고 원본 비율 그대로 압축한다. */
+export async function compressFullImage(sourceUrl: string): Promise<Blob> {
+  const image = await loadImage(sourceUrl)
+  return cropAndCompressImage(
+    sourceUrl,
+    { x: 0, y: 0, width: image.naturalWidth, height: image.naturalHeight },
+    0
+  )
+}
+
 export function getDeliveryImageUrl(path?: string | null): string | null {
   if (!path) return null
   return supabase.storage.from(DELIVERY_IMAGE_BUCKET).getPublicUrl(path).data.publicUrl

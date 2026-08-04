@@ -6,6 +6,9 @@ import Link from 'next/link'
 import { CheckCircle2, AlertCircle } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { sanitizeNext, withNext } from '@/lib/nextPath'
+import { getSocialAuthErrorMessage } from '@/lib/socialAuth'
+import type { SocialProvider } from '@/lib/socialAuth'
+import { getUserAvatarUrl } from '@/lib/userAvatar'
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
@@ -13,6 +16,7 @@ function SignUpForm() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const next = sanitizeNext(searchParams.get('next'))
+  const isSocialNicknameSetup = searchParams.get('social') === '1'
   const [email, setEmail] = useState('')
   const [nickname, setNickname] = useState('')
   const [password, setPassword] = useState('')
@@ -25,21 +29,88 @@ function SignUpForm() {
   const [loading, setLoading] = useState(false)
   const [checkingNickname, setCheckingNickname] = useState(false)
   const [isNicknameVerified, setIsNicknameVerified] = useState(false)
+  const [socialLoading, setSocialLoading] = useState<SocialProvider | null>(null)
+  const [socialUserId, setSocialUserId] = useState<string | null>(null)
+  const [checkingSocialProfile, setCheckingSocialProfile] = useState(isSocialNicknameSetup)
 
   const showMatchStatus = passwordConfirm.length > 0
   const passwordsMatch = password === passwordConfirm
 
-  // 이미 로그인한 사용자도 동일한 next 규칙을 따른다
+  const handleSocialSignUp = async (provider: SocialProvider) => {
+    if (provider === 'kakao') {
+      window.location.assign(`/api/auth/kakao/start?next=${encodeURIComponent(next)}`)
+      return
+    }
+
+    setSocialLoading(provider)
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider,
+      options: {
+        redirectTo: `${window.location.origin}/signup?social=1&next=${encodeURIComponent(next)}`,
+      },
+    })
+    if (error) {
+      setSocialLoading(null)
+      alert(getSocialAuthErrorMessage(provider, error.message))
+    }
+  }
+
+  // 소셜 로그인 사용자는 서비스 프로필의 닉네임 유무에 따라 분기한다.
   useEffect(() => {
     let active = true
-    supabase.auth.getSession().then(({ data }) => {
+    const checkSession = async () => {
+      if (isSocialNicknameSetup) {
+        const tokenResponse = await fetch('/api/auth/kakao/token', { cache: 'no-store' })
+        if (tokenResponse.ok) {
+          const { idToken } = await tokenResponse.json() as { idToken: string }
+          const { error } = await supabase.auth.signInWithIdToken({ provider: 'kakao', token: idToken })
+          if (error) {
+            setFormError('카카오 로그인 처리에 실패했습니다. 다시 시도해주세요.')
+            setCheckingSocialProfile(false)
+            return
+          }
+        }
+      }
+
+      const { data } = await supabase.auth.getSession()
       if (!active) return
-      if (data.session) router.replace(next)
-    })
+
+      if (!isSocialNicknameSetup) {
+        if (data.session) router.replace(next)
+        return
+      }
+
+      const user = data.session?.user
+      if (!user) {
+        router.replace('/login')
+        return
+      }
+
+      const { data: profile, error } = await supabase
+        .from('profiles')
+        .select('nickname')
+        .eq('user_id', user.id)
+        .maybeSingle()
+
+      if (!active) return
+      if (error) {
+        setFormError('회원 프로필을 확인할 수 없습니다. 데이터베이스 설정을 확인해주세요.')
+        setCheckingSocialProfile(false)
+        return
+      }
+      if (profile?.nickname?.trim()) {
+        router.replace(next)
+        return
+      }
+
+      setSocialUserId(user.id)
+      setCheckingSocialProfile(false)
+    }
+    checkSession()
     return () => {
       active = false
     }
-  }, [next, router])
+  }, [isSocialNicknameSetup, next, router])
 
   // 닉네임 중복 체크 함수
   const checkNickname = async (targetNickname: string, silent = false): Promise<boolean> => {
@@ -171,9 +242,87 @@ function SignUpForm() {
       }
     }
 
+    const { data: currentUserData } = await supabase.auth.getUser()
+    if (currentUserData.user) {
+      const { error: profileError } = await supabase
+        .from('profiles')
+        .upsert({ user_id: currentUserData.user.id, nickname: nickname.trim() }, { onConflict: 'user_id' })
+      if (profileError) {
+        setLoading(false)
+        setFormError('회원 프로필 저장에 실패했습니다. 데이터베이스 설정을 확인해주세요.')
+        return
+      }
+    }
+
     setLoading(false)
     alert('회원가입 완료!')
     router.replace(next)
+  }
+
+  const handleSocialNicknameSave = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!socialUserId || !isNicknameVerified) {
+      setNicknameError('닉네임 중복 확인을 완료해주세요.')
+      return
+    }
+
+    setLoading(true)
+    const trimmed = nickname.trim()
+    const isNicknameAvailable = await checkNickname(trimmed, true)
+    if (!isNicknameAvailable) {
+      setLoading(false)
+      setNicknameError('이미 사용 중인 닉네임입니다.')
+      return
+    }
+
+    const { error } = await supabase
+      .from('profiles')
+      .upsert({ user_id: socialUserId, nickname: trimmed }, { onConflict: 'user_id' })
+    if (error) {
+      setLoading(false)
+      if (error.code === '23505') {
+        setNicknameError('이미 사용 중인 닉네임입니다.')
+        setIsNicknameVerified(false)
+      } else {
+        setFormError('닉네임 저장에 실패했습니다. 잠시 후 다시 시도해주세요.')
+      }
+      return
+    }
+
+    // 서비스 닉네임은 직접 설정하되 소셜 제공자가 준 프로필 사진은 보존한다.
+    const { data: currentUserData } = await supabase.auth.getUser()
+    const socialAvatarUrl = getUserAvatarUrl(currentUserData.user)
+    await supabase.auth.updateUser({ data: { nickname: trimmed, display_name: trimmed, avatar_url: socialAvatarUrl } })
+    setLoading(false)
+    router.replace(next)
+  }
+
+  if (isSocialNicknameSetup) {
+    if (checkingSocialProfile) {
+      return <div className="min-h-screen flex items-center justify-center text-sky-600 font-sans text-sm">로그인 정보를 확인하는 중...</div>
+    }
+
+    return (
+      <div className="min-h-screen bg-sky-50/70 flex items-center justify-center p-4 font-sans">
+        <form onSubmit={handleSocialNicknameSave} className="bg-white rounded-3xl shadow-xl border border-sky-100 p-8 w-full max-w-md space-y-5">
+          <header className="text-center">
+            <h1 className="font-serif text-3xl font-extrabold text-sky-600">닉네임 설정</h1>
+            <p className="font-serif text-sm text-slate-600 mt-2">서비스에서 사용할 닉네임을 직접 설정해주세요.</p>
+          </header>
+          <div>
+            <label className="block text-sm font-bold text-slate-700 mb-1">닉네임</label>
+            <div className="flex gap-2">
+              <input type="text" required value={nickname} onChange={(e) => { setNickname(e.target.value); setNicknameError(''); setNicknameSuccess(''); setIsNicknameVerified(false) }} placeholder="사용하실 닉네임을 입력하세요" className="w-full px-4 py-3 rounded-xl border border-slate-200 text-sm" />
+              <button type="button" onClick={() => checkNickname(nickname)} disabled={checkingNickname || !nickname.trim()} className="px-3.5 py-3 bg-sky-100 text-sky-700 text-xs font-bold rounded-xl whitespace-nowrap disabled:opacity-50">{checkingNickname ? '확인 중...' : '중복 확인'}</button>
+            </div>
+            {nicknameError && <p className="flex items-center gap-1 text-xs text-rose-500 font-medium mt-1"><AlertCircle className="w-3.5 h-3.5" /> {nicknameError}</p>}
+            {nicknameSuccess && <p className="flex items-center gap-1 text-xs text-emerald-600 font-medium mt-1"><CheckCircle2 className="w-3.5 h-3.5" /> {nicknameSuccess}</p>}
+          </div>
+          {formError && <p className="text-xs text-rose-500 font-medium">{formError}</p>}
+          <button type="submit" disabled={loading || !isNicknameVerified} className="w-full py-3.5 px-4 bg-sky-500 text-white font-bold rounded-xl disabled:opacity-50">{loading ? '저장 중...' : '가입 완료'}</button>
+        </form>
+      </div>
+    )
   }
 
   return (
@@ -187,6 +336,30 @@ function SignUpForm() {
             🍽️ 딜리버리픽에 오신 것을 환영합니다!
           </p>
         </header>
+
+        <div className="space-y-2.5 mb-6">
+          <button
+            type="button"
+            onClick={() => handleSocialSignUp('kakao')}
+            disabled={socialLoading !== null}
+            className="w-full py-3 px-4 rounded-2xl bg-[#FEE500] hover:bg-[#FADA0A] text-slate-900 font-bold text-sm flex items-center justify-center gap-2 shadow-sm transition-all disabled:opacity-50"
+          >
+            💬 {socialLoading === 'kakao' ? '카카오 연결 중...' : '카카오로 로그인 / 회원가입'}
+          </button>
+          <button
+            type="button"
+            onClick={() => handleSocialSignUp('google')}
+            disabled={socialLoading !== null}
+            className="w-full py-3 px-4 rounded-2xl bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 font-bold text-sm flex items-center justify-center gap-2 shadow-sm transition-all disabled:opacity-50"
+          >
+            🌐 {socialLoading === 'google' ? 'Google 연결 중...' : 'Google 계정으로 로그인 / 회원가입'}
+          </button>
+        </div>
+
+        <div className="relative my-6 text-center">
+          <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-slate-200" /></div>
+          <span className="relative px-3 bg-white text-[11px] text-slate-400">또는 이메일 회원가입</span>
+        </div>
 
         <form onSubmit={handleSignUp} noValidate className="space-y-5">
           <div>
@@ -331,4 +504,3 @@ export default function SignUpPage() {
     </Suspense>
   )
 }
-

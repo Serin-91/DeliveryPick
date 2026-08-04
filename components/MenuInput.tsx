@@ -1,7 +1,7 @@
 'use client'
 
 import { Plus, X } from 'lucide-react'
-import { MAX_MENUS } from '@/lib/menuForm'
+import { MAX_MENUS, formatPriceInput } from '@/lib/menuForm'
 import type { MenuFormRow } from '@/lib/menuForm'
 
 export default function MenuInput({
@@ -38,19 +38,16 @@ export default function MenuInput({
   }
 
   return (
-    <div className="space-y-2 pt-2 border-t border-slate-100">
+    <div className="space-y-3 pt-3 border-t border-slate-100">
       <div className="flex items-center justify-between">
-        <label className="block text-xs font-semibold text-slate-700">메뉴 *</label>
-        <span className="text-[11px] text-slate-400">
-          {rows.length}/{MAX_MENUS} · 추가 메뉴는 선택
-        </span>
+        <label className="block font-bold text-slate-800">📋 추천 메뉴 입력 *</label>
       </div>
 
       <div className="space-y-2">
         {rows.map((row, idx) => (
           <div
             key={idx}
-            className={`p-3 rounded-xl border space-y-2 ${
+            className={`p-4 rounded-2xl border space-y-3 ${
               row.is_representative ? 'border-sky-300 bg-sky-50/60' : 'border-slate-200 bg-slate-50/60'
             }`}
           >
@@ -90,16 +87,15 @@ export default function MenuInput({
                 value={row.name}
                 onChange={(e) => updateRow(idx, { name: e.target.value })}
                 placeholder={idx === 0 ? '메뉴명 (예: 황금올리브)' : '메뉴명'}
-                className="w-full px-3 py-2 border border-sky-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-sky-300 text-sm bg-white"
+                className="w-full px-4 py-3 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/30 text-sm bg-white"
               />
               <input
-                type="number"
-                min={0}
-                step={1}
+                type="text"
+                inputMode="numeric"
                 value={row.price}
-                onChange={(e) => updateRow(idx, { price: e.target.value })}
+                onChange={(e) => updateRow(idx, { price: formatPriceInput(e.target.value) })}
                 placeholder="가격(원)"
-                className="w-full px-3 py-2 border border-sky-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-sky-300 text-sm bg-white"
+                className="w-full px-4 py-3 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/30 text-sm bg-white"
               />
             </div>
           </div>
@@ -114,11 +110,7 @@ export default function MenuInput({
         >
           <Plus className="w-3.5 h-3.5" /> 메뉴 추가 (선택)
         </button>
-      ) : (
-        <p className="text-[11px] text-slate-400 text-center">
-          메뉴는 최대 {MAX_MENUS}개까지 등록할 수 있습니다.
-        </p>
-      )}
+      ) : null}
     </div>
   )
 }

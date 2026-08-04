@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import { ArrowLeft, Check } from 'lucide-react'
+import { ArrowLeft, Check, Sparkles } from 'lucide-react'
 import { useRequireAuth } from '@/lib/useRequireAuth'
 import { supabase } from '@/lib/supabase'
 import {
@@ -12,13 +12,15 @@ import {
   DELIVERY_SELECT_WITH_MENUS,
   normalizeDelivery,
 } from '@/lib/types'
-import { toMenuRows, validateMenuRows } from '@/lib/menuForm'
+import { formatPriceInput, parsePriceInput, toMenuRows, validateMenuRows } from '@/lib/menuForm'
 import type { MenuFormRow } from '@/lib/menuForm'
 import Header from '@/components/Header'
 import StarRating from '@/components/StarRating'
 import RegionMenuFields from '@/components/RegionMenuFields'
 import MenuInput from '@/components/MenuInput'
 import RepresentativeMenuImageInput from '@/components/RepresentativeMenuImageInput'
+import ReceiptScannerModal from '@/components/ReceiptScannerModal'
+import BottomNav from '@/components/BottomNav'
 import type { RepresentativeImageValue } from '@/components/RepresentativeMenuImageInput'
 import type { RegionValue } from '@/components/RegionMenuFields'
 import {
@@ -26,16 +28,19 @@ import {
   removeDeliveryImage,
   uploadDeliveryImage,
 } from '@/lib/deliveryImage'
+import { getUserAvatarUrl } from '@/lib/userAvatar'
 
 interface FormState {
   name: string
   category: string
   app_name: string
-  min_order: number
+  min_order: string
   rating: number
   memo: string
   sido: string
   sigungu: string
+  order_number: string
+  is_verified: boolean
 }
 
 export default function EditPage() {
@@ -53,6 +58,7 @@ export default function EditPage() {
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
   const [forbidden, setForbidden] = useState(false)
+  const [ocrModalOpen, setOcrModalOpen] = useState(false)
 
   useEffect(() => {
     if (!user) return
@@ -81,11 +87,13 @@ export default function EditPage() {
           name: item.name ?? '',
           category: item.category ?? FORM_CATEGORIES[0],
           app_name: item.app_name ?? APP_NAMES[0],
-          min_order: item.min_order ?? 0,
+          min_order: item.min_order ? formatPriceInput(item.min_order) : '',
           rating: item.rating ?? 5,
           memo: item.memo ?? '',
           sido: item.sido ?? '',
           sigungu: item.sigungu ?? '',
+          order_number: item.order_number ?? '',
+          is_verified: Boolean(item.is_verified),
         })
         setMenuRows(toMenuRows(item.menus))
         setExistingImagePath(item.image_path ?? null)
@@ -146,6 +154,24 @@ export default function EditPage() {
   const patchRegion = (patch: Partial<RegionValue>) =>
     setFormData((prev) => (prev ? { ...prev, ...patch } : prev))
 
+  const handleOcrSuccess = (data: any) => {
+    setFormData((prev) => prev ? {
+      ...prev,
+      name: data.storeName || prev.name,
+      app_name: data.appName && APP_NAMES.includes(data.appName) ? data.appName : prev.app_name,
+      min_order: data.totalAmount ? formatPriceInput(data.totalAmount) : prev.min_order,
+      order_number: data.orderNumber ? `${data.appName || 'APP'}_${data.orderNumber}` : prev.order_number,
+      is_verified: true,
+    } : prev)
+    if (Array.isArray(data.menus) && data.menus.length > 0) {
+      setMenuRows(data.menus.slice(0, 30).map((menu: any, index: number) => ({
+        name: menu.name || '',
+        price: menu.price ? String(menu.price) : '',
+        is_representative: index === 0,
+      })))
+    }
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (submitting) return
@@ -200,12 +226,16 @@ export default function EditPage() {
         name: formData.name.trim(),
         category: formData.category,
         app_name: formData.app_name,
-        min_order: Number(formData.min_order) || 0,
+        min_order: parsePriceInput(formData.min_order),
         rating: formData.rating,
         memo: formData.memo.trim(),
         sido: formData.sido,
         sigungu: formData.sigungu,
         image_path: nextImagePath,
+        order_number: formData.order_number || null,
+        is_verified: formData.is_verified,
+        user_nickname: user.user_metadata?.nickname || user.user_metadata?.display_name || '회원',
+        user_avatar_url: getUserAvatarUrl(user),
       })
       .eq('id', params.id)
       .eq('user_id', user.id)
@@ -262,15 +292,12 @@ export default function EditPage() {
     router.push(`/delivery/${params.id}`)
   }
 
-  const needsRegion = !formData.sido || !formData.sigungu
-  const needsMenu = !validateMenuRows(menuRows).ok
-
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-800 font-serif">
+    <div className="min-h-screen flex flex-col bg-gradient-to-b from-sky-50 to-slate-50 text-slate-800 font-serif">
       <Header user={user} />
 
-      <main className="max-w-4xl mx-auto p-6">
-        <div className="bg-white rounded-2xl p-6 shadow-sm border border-sky-100 max-w-xl mx-auto space-y-6">
+      <main className="flex-1 max-w-2xl w-full mx-auto px-4 py-8">
+        <div className="bg-white/80 backdrop-blur-xl border border-white/80 rounded-3xl p-6 sm:p-8 shadow-sm space-y-6">
           <button
             onClick={() => router.push(`/delivery/${params.id}`)}
             className="flex items-center gap-1 text-xs text-sky-600 hover:underline font-sans font-medium"
@@ -278,37 +305,40 @@ export default function EditPage() {
             <ArrowLeft className="w-4 h-4" /> 취소하고 돌아가기
           </button>
 
-          <h2 className="text-xl font-bold text-slate-800">맛집 정보 수정</h2>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-100">
+            <h2 className="text-2xl font-bold text-slate-900">🛵 맛집 정보 수정</h2>
+            <button
+              type="button"
+              onClick={() => setOcrModalOpen(true)}
+              className="px-4 py-2 rounded-2xl bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs shadow-md flex items-center gap-1.5"
+            >
+              <Sparkles className="w-4 h-4" /> Gemini AI 영수증 인식
+            </button>
+          </div>
 
-          {(needsRegion || needsMenu) && (
-            <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-xl px-3.5 py-2.5 font-sans leading-relaxed">
-              아직 채워지지 않은 항목이 있어요
-              {needsRegion && ' · 지역'}
-              {needsMenu && ' · 메뉴'}
-              <br />
-              지역을 채우면 <strong>🎲 오늘 뭐 먹지?</strong> 추천 대상에 포함됩니다.
-            </p>
-          )}
+          <p className="text-xs text-blue-700 bg-blue-50 border border-blue-100 rounded-xl px-3.5 py-2.5 font-sans leading-relaxed">
+            사진이나 영수증 인증을 추가하면 저장 후 포토·영수증 리뷰 집계와 리뷰 등급에 반영됩니다.
+          </p>
 
-          <form onSubmit={handleSubmit} className="space-y-4 font-sans text-sm">
+          <form onSubmit={handleSubmit} className="space-y-5 font-sans text-sm">
             <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1">식당명 *</label>
+              <label className="block font-bold text-slate-800 mb-1">식당명 *</label>
               <input
                 type="text"
                 required
                 value={formData.name}
                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                className="w-full px-3.5 py-2 border border-sky-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-sky-300"
+                className="w-full px-4 py-3 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/30 text-base"
               />
             </div>
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs font-medium text-slate-600 mb-1">카테고리</label>
+                <label className="block font-bold text-slate-800 mb-1">음식 카테고리</label>
                 <select
                   value={formData.category}
                   onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-                  className="w-full px-3.5 py-2 border border-sky-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-sky-300 bg-white"
+                  className="w-full px-4 py-3 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/30 bg-white"
                 >
                   {FORM_CATEGORIES.map((c) => (
                     <option key={c} value={c}>
@@ -318,11 +348,11 @@ export default function EditPage() {
                 </select>
               </div>
               <div>
-                <label className="block text-xs font-medium text-slate-600 mb-1">주요 이용 배달앱</label>
+                <label className="block font-bold text-slate-800 mb-1">주요 이용 배달앱</label>
                 <select
                   value={formData.app_name}
                   onChange={(e) => setFormData({ ...formData, app_name: e.target.value })}
-                  className="w-full px-3.5 py-2 border border-sky-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-sky-300 bg-white"
+                  className="w-full px-4 py-3 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/30 bg-white"
                 >
                   {APP_NAMES.map((a) => (
                     <option key={a}>{a}</option>
@@ -332,13 +362,14 @@ export default function EditPage() {
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1">최소주문금액 (원)</label>
+              <label className="block font-bold text-slate-800 mb-1">최소주문금액 (원)</label>
               <input
-                type="number"
-                min={0}
+                type="text"
+                inputMode="numeric"
                 value={formData.min_order}
-                onChange={(e) => setFormData({ ...formData, min_order: Number(e.target.value) })}
-                className="w-full px-3.5 py-2 border border-sky-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-sky-300"
+                onChange={(e) => setFormData({ ...formData, min_order: formatPriceInput(e.target.value) })}
+                placeholder="입력"
+                className="w-full px-4 py-3 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/30 text-base"
               />
             </div>
 
@@ -354,21 +385,22 @@ export default function EditPage() {
             />
 
             <div className="pt-2 border-t border-slate-100">
-              <label className="block text-xs font-medium text-slate-600 mb-1">평점 (1~5점)</label>
+              <label className="block text-sm font-medium text-slate-600 mb-1">평점 (0.5~5점)</label>
               <StarRating
                 rating={formData.rating}
                 onChange={(r) => setFormData({ ...formData, rating: r })}
-                size="w-6 h-6"
+                size="lg"
+                editable
               />
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1">한줄평</label>
+              <label className="block font-bold text-slate-800 mb-1">💬 솔직한 추천 한줄평 / 꿀팁</label>
               <textarea
                 rows={3}
                 value={formData.memo}
                 onChange={(e) => setFormData({ ...formData, memo: e.target.value })}
-                className="w-full px-3.5 py-2 border border-sky-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-sky-300 resize-none font-serif"
+                className="w-full px-4 py-3 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/30 resize-none font-serif"
               />
             </div>
 
@@ -384,6 +416,12 @@ export default function EditPage() {
           </form>
         </div>
       </main>
+      <BottomNav />
+      <ReceiptScannerModal
+        isOpen={ocrModalOpen}
+        onClose={() => setOcrModalOpen(false)}
+        onScanSuccess={handleOcrSuccess}
+      />
     </div>
   )
 }

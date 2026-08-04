@@ -1,228 +1,506 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft, Check } from 'lucide-react'
-import { useRequireAuth } from '@/lib/useRequireAuth'
-import { supabase } from '@/lib/supabase'
-import { FORM_CATEGORIES, CATEGORY_EMOJI, APP_NAMES } from '@/lib/types'
-import { createInitialMenuRows, validateMenuRows } from '@/lib/menuForm'
-import type { MenuFormRow } from '@/lib/menuForm'
+import { ShieldCheck, MapPin, Sparkles, Plus, Trash2, ArrowLeft } from 'lucide-react'
+import Link from 'next/link'
 import Header from '@/components/Header'
+import BottomNav from '@/components/BottomNav'
+import ReceiptScannerModal from '@/components/ReceiptScannerModal'
 import StarRating from '@/components/StarRating'
-import RegionMenuFields from '@/components/RegionMenuFields'
-import MenuInput from '@/components/MenuInput'
+import { FORM_CATEGORIES, APP_NAMES } from '@/lib/types'
+import { useAuth } from '@/lib/useAuth'
+import { supabase } from '@/lib/supabase'
 import RepresentativeMenuImageInput from '@/components/RepresentativeMenuImageInput'
 import type { RepresentativeImageValue } from '@/components/RepresentativeMenuImageInput'
-import type { RegionValue } from '@/components/RegionMenuFields'
 import { removeDeliveryImage, uploadDeliveryImage } from '@/lib/deliveryImage'
+import { getUserAvatarUrl } from '@/lib/userAvatar'
+
+interface MenuDraft {
+  name: string
+  price: string
+  is_representative: boolean
+}
+
+interface ExistingStoreSuggestion {
+  id: string
+  name: string
+  sido: string | null
+  sigungu: string | null
+  delivery_menus?: { name: string; is_representative: boolean }[] | null
+}
+
+// 콤마 포맷팅 유틸: 숫자만 추출 후 toLocaleString
+function formatNumberWithComma(value: string): string {
+  const num = value.replace(/[^0-9]/g, '')
+  if (!num) return ''
+  return Number(num).toLocaleString()
+}
+
+function parseCommaNumber(value: string): number {
+  return Number(value.replace(/,/g, '')) || 0
+}
 
 export default function RegisterPage() {
-  const { user, loading: authLoading } = useRequireAuth()
+  const { user } = useAuth()
   const router = useRouter()
-  const [formData, setFormData] = useState({
-    name: '',
-    category: FORM_CATEGORIES[0] as string,
-    app_name: APP_NAMES[0] as string,
-    min_order: 15000,
-    rating: 5,
-    memo: '',
-    sido: '',
-    sigungu: '',
-  })
-  const [menuRows, setMenuRows] = useState<MenuFormRow[]>(createInitialMenuRows)
+
+  const [ocrModalOpen, setOcrModalOpen] = useState(false)
+
+  // 폼 필드
+  const [name, setName] = useState('')
+  const [category, setCategory] = useState('')
+  const [appName, setAppName] = useState('')
+  const [minOrder, setMinOrder] = useState('')
+  const [rating, setRating] = useState(0)
+  const [memo, setMemo] = useState('')
   const [representativeImage, setRepresentativeImage] = useState<RepresentativeImageValue>({
     blob: null,
     removeExisting: false,
   })
-  const [submitting, setSubmitting] = useState(false)
-  const [error, setError] = useState('')
 
-  if (authLoading || !user) {
-    return (
-      <div className="min-h-screen flex items-center justify-center text-sky-600 font-sans text-sm">
-        불러오는 중...
-      </div>
+  // 영수증 인증 필드
+  const [orderNumber, setOrderNumber] = useState('')
+  const [isVerified, setIsVerified] = useState(false)
+
+  // 메뉴 (최대 30개)
+  const [menus, setMenus] = useState<MenuDraft[]>([
+    { name: '', price: '', is_representative: true },
+  ])
+
+  const [submitting, setSubmitting] = useState(false)
+  const [storeSuggestions, setStoreSuggestions] = useState<ExistingStoreSuggestion[]>([])
+  const [searchingStores, setSearchingStores] = useState(false)
+
+  // 최초 등록 게시물만 검색해 새 게시물 중복 생성을 막는다.
+  useEffect(() => {
+    const query = name.trim().replace(/[%_,]/g, '')
+    if (query.length < 2) {
+      setStoreSuggestions([])
+      setSearchingStores(false)
+      return
+    }
+    let active = true
+    setSearchingStores(true)
+    const timer = window.setTimeout(async () => {
+      const { data } = await supabase
+        .from('deliveries')
+        .select('id,name,sido,sigungu,delivery_menus(name,is_representative)')
+        .is('root_delivery_id', null)
+        .ilike('name', `%${query}%`)
+        .eq('is_hidden', false)
+        .order('created_at', { ascending: true })
+        .limit(6)
+      if (!active) return
+      setStoreSuggestions((data || []) as ExistingStoreSuggestion[])
+      setSearchingStores(false)
+    }, 250)
+    return () => {
+      active = false
+      window.clearTimeout(timer)
+    }
+  }, [name])
+
+  // OCR 결과 자동입력 처리
+  const handleOcrSuccess = (data: any) => {
+    if (data.storeName) setName(data.storeName)
+    if (data.appName && APP_NAMES.includes(data.appName as any)) setAppName(data.appName)
+    if (data.totalAmount) setMinOrder(formatNumberWithComma(String(data.totalAmount)))
+    if (data.orderNumber) setOrderNumber(`${data.appName || 'APP'}_${data.orderNumber}`)
+    setIsVerified(true)
+
+    if (data.menus && Array.isArray(data.menus) && data.menus.length > 0) {
+      const draftList: MenuDraft[] = data.menus.slice(0, 30).map((m: any, idx: number) => ({
+        name: m.name || '',
+        price: m.price ? formatNumberWithComma(String(m.price)) : '',
+        is_representative: idx === 0,
+      }))
+      setMenus(draftList)
+    }
+  }
+
+  // 메뉴 추가 (최대 30개 제한)
+  const handleAddMenu = () => {
+    if (menus.length >= 30) {
+      alert('메뉴는 최대 30개까지 등록할 수 있습니다.')
+      return
+    }
+    setMenus((prev) => [...prev, { name: '', price: '', is_representative: false }])
+  }
+
+  const handleRemoveMenu = (index: number) => {
+    if (menus.length === 1) {
+      alert('최소 1개의 메뉴 정보는 필요합니다.')
+      return
+    }
+    setMenus((prev) => prev.filter((_, i) => i !== index))
+  }
+
+  const handleMenuChange = (index: number, field: keyof MenuDraft, value: any) => {
+    setMenus((prev) =>
+      prev.map((m, i) => {
+        if (i === index) {
+          if (field === 'is_representative' && value === true) {
+            // 대표 메뉴는 1개만 허용
+            return { ...m, is_representative: true }
+          }
+          return { ...m, [field]: value }
+        }
+        if (field === 'is_representative' && value === true) {
+          return { ...m, is_representative: false }
+        }
+        return m
+      })
     )
   }
 
-  const patchRegion = (patch: Partial<RegionValue>) =>
-    setFormData((prev) => ({ ...prev, ...patch }))
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (submitting) return
-
-    if (!formData.name.trim()) {
-      setError('식당명을 입력해 주세요.')
-      return
-    }
-    if (!formData.sido) {
-      setError('시/도를 선택해 주세요.')
-      return
-    }
-    if (!formData.sigungu) {
-      setError('시/군/구를 선택해 주세요.')
+    if (!user) {
+      alert('맛집 등록은 로그인 후 이용하실 수 있습니다.')
+      router.push('/login')
       return
     }
 
-    const menuCheck = validateMenuRows(menuRows)
-    if (!menuCheck.ok) {
-      setError(menuCheck.error)
+    if (!name.trim()) {
+      alert('가게/식당 이름을 입력해 주세요.')
+      return
+    }
+    if (!category) {
+      alert('음식 카테고리를 선택해 주세요.')
+      return
+    }
+    if (!appName) {
+      alert('주요 이용 배달앱을 선택해 주세요.')
+      return
+    }
+    if (!minOrder.trim() || parseCommaNumber(minOrder) <= 0) {
+      alert('최소주문금액을 1원 이상 입력해 주세요.')
+      return
+    }
+    if (rating < 0.5 || rating > 5) {
+      alert('만족도 평점을 0.5~5점 중에서 직접 선택해 주세요.')
+      return
+    }
+    if (menus.length === 0 || menus.some((menu) => !menu.name.trim())) {
+      alert('추천 메뉴명을 모두 입력해 주세요.')
+      return
+    }
+    if (menus.some((menu) => !menu.price.trim() || parseCommaNumber(menu.price) <= 0)) {
+      alert('추천 메뉴 가격을 모두 1원 이상 입력해 주세요.')
+      return
+    }
+    if (menus.filter((menu) => menu.is_representative).length !== 1) {
+      alert('대표 추천 메뉴를 정확히 1개 선택해 주세요.')
+      return
+    }
+    const normalizedMenuNames = menus.map((menu) => menu.name.trim().replace(/\s+/g, '').toLocaleLowerCase('ko-KR'))
+    if (new Set(normalizedMenuNames).size !== normalizedMenuNames.length) {
+      alert('같은 추천 메뉴를 중복해서 등록할 수 없습니다.')
+      return
+    }
+
+    const exactExisting = storeSuggestions.find(
+      (store) => store.name.replace(/\s+/g, '').toLocaleLowerCase('ko-KR') === name.trim().replace(/\s+/g, '').toLocaleLowerCase('ko-KR')
+    )
+    if (exactExisting) {
+      alert('이미 등록된 맛집입니다. 기존 상세 페이지에서 새 리뷰를 등록해 주세요.')
+      router.push(`/delivery/${exactExisting.id}`)
+      return
+    }
+
+    // 자동완성 응답 전에 제출해도 서버에서 한 번 더 중복을 확인한다.
+    const normalizedInputName = name.trim().replace(/\s+/g, '').toLocaleLowerCase('ko-KR')
+    const duplicateQuery = name.trim().replace(/[%_,]/g, '')
+    const { data: duplicateCandidates } = await supabase
+      .from('deliveries')
+      .select('id,name')
+      .is('root_delivery_id', null)
+      .ilike('name', `%${duplicateQuery}%`)
+      .limit(10)
+    const duplicate = duplicateCandidates?.find(
+      (store) => store.name.replace(/\s+/g, '').toLocaleLowerCase('ko-KR') === normalizedInputName
+    )
+    if (duplicate) {
+      alert('이미 등록된 맛집입니다. 기존 상세 페이지에서 새 리뷰를 등록해 주세요.')
+      router.push(`/delivery/${duplicate.id}`)
       return
     }
 
     setSubmitting(true)
-    setError('')
 
-    const authorNickname =
-      (user.user_metadata?.nickname as string) ||
-      (user.user_metadata?.display_name as string) ||
-      user.email?.split('@')[0] ||
-      '회원'
+    try {
+      // 1. deliveries 테이블에 등록
+      const { data: dData, error: dErr } = await supabase
+        .from('deliveries')
+        .insert({
+          name: name.trim(),
+          category,
+          app_name: appName,
+          min_order: parseCommaNumber(minOrder),
+          rating,
+          memo: memo.trim(),
+          user_id: user.id,
+          order_number: orderNumber || null,
+          is_verified: isVerified,
+          user_nickname:
+            user.user_metadata?.nickname || user.user_metadata?.display_name || '회원',
+          user_avatar_url: getUserAvatarUrl(user),
+        })
+        .select()
+        .single()
 
-    // 1) 맛집 본문 저장
-    const { data: created, error: insertError } = await supabase
-      .from('deliveries')
-      .insert({
-        name: formData.name.trim(),
-        category: formData.category,
-        app_name: formData.app_name,
-        min_order: Number(formData.min_order) || 0,
-        rating: formData.rating,
-        memo: formData.memo.trim(),
-        sido: formData.sido,
-        sigungu: formData.sigungu,
-        user_id: user.id,
-        user_nickname: authorNickname,
-      })
-      .select('id')
-      .single()
-
-    if (insertError || !created) {
-      setSubmitting(false)
-      setError('등록에 실패했습니다. 다시 시도해주세요.')
-      return
-    }
-
-    // 2) 메뉴 저장 (트랜잭션 RPC)
-    const { error: menuError } = await supabase.rpc('replace_delivery_menus', {
-      p_delivery_id: created.id,
-      p_menus: menuCheck.rows,
-    })
-
-    if (menuError) {
-      // 메뉴 저장 실패 시 맛집도 되돌려 반쪽 데이터가 남지 않게 한다
-      await supabase.from('deliveries').delete().eq('id', created.id)
-      setSubmitting(false)
-      setError('메뉴 저장에 실패했습니다. 다시 시도해주세요.')
-      return
-    }
-
-    // 3) 대표 메뉴 사진 저장. 실패하면 본문까지 되돌려 반쪽 게시물이 남지 않게 한다.
-    if (representativeImage.blob) {
-      let uploadedPath: string | null = null
-      try {
-        uploadedPath = await uploadDeliveryImage(user.id, created.id, representativeImage.blob)
-        const { error: imagePathError } = await supabase
-          .from('deliveries')
-          .update({ image_path: uploadedPath })
-          .eq('id', created.id)
-          .eq('user_id', user.id)
-
-        if (imagePathError) throw imagePathError
-      } catch {
-        if (uploadedPath) {
-          try {
-            await removeDeliveryImage(uploadedPath)
-          } catch {
-            // DB 롤백이 우선이며, 저장소 정리는 가능한 범위에서 수행한다.
-          }
+      if (dErr) {
+        if (dErr.code === '23505') {
+          alert('⚠️ 이미 등록된 영수증 주문번호입니다! 중복 등록이 차단되었습니다.')
+        } else {
+          alert('식당 등록 중 오류가 발생했습니다: ' + dErr.message)
         }
-        await supabase.from('deliveries').delete().eq('id', created.id).eq('user_id', user.id)
         setSubmitting(false)
-        setError('사진 저장에 실패했습니다. 잠시 후 다시 시도해주세요.')
         return
       }
-    }
 
-    setSubmitting(false)
-    alert('새 맛집이 등록되었습니다!')
-    router.push(`/delivery/${created.id}`)
+      // 2. delivery_menus 테이블에 메뉴 등록
+      const validMenus = menus
+      if (validMenus.length > 0 && dData) {
+        const menuRows = validMenus.map((m, idx) => ({
+          delivery_id: dData.id,
+          name: m.name.trim(),
+          price: parseCommaNumber(m.price),
+          is_representative: m.is_representative,
+          sort_order: idx,
+        }))
+
+        const { error: menuError } = await supabase.from('delivery_menus').insert(menuRows)
+        if (menuError) {
+          await supabase.from('deliveries').delete().eq('id', dData.id).eq('user_id', user.id)
+          throw new Error(`추천 메뉴 저장에 실패했습니다: ${menuError.message}`)
+        }
+      }
+
+      if (representativeImage.blob && dData) {
+        let uploadedPath: string | null = null
+        try {
+          uploadedPath = await uploadDeliveryImage(user.id, dData.id, representativeImage.blob)
+          const { error: imageError } = await supabase
+            .from('deliveries')
+            .update({ image_path: uploadedPath })
+            .eq('id', dData.id)
+            .eq('user_id', user.id)
+          if (imageError) throw imageError
+        } catch {
+          if (uploadedPath) await removeDeliveryImage(uploadedPath).catch(() => undefined)
+          await supabase.from('deliveries').delete().eq('id', dData.id).eq('user_id', user.id)
+          alert('사진 저장에 실패해 등록을 취소했습니다. 잠시 후 다시 시도해 주세요.')
+          return
+        }
+      }
+
+      alert('🎉 성공적으로 배달 맛집이 등록되었습니다!')
+      router.push('/')
+    } catch (err: any) {
+      alert(err.message || '등록 처리 중 실패했습니다.')
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-800 font-serif">
-      <Header user={user} />
+    <div className="min-h-screen flex flex-col font-serif bg-gradient-to-b from-sky-50 to-slate-50">
+      <Header />
 
-      <main className="max-w-4xl mx-auto p-6">
-        <div className="bg-white rounded-2xl p-6 shadow-sm border border-sky-100 max-w-xl mx-auto space-y-6">
-          <button
-            onClick={() => router.push('/')}
-            className="flex items-center gap-1 text-xs text-sky-600 hover:underline font-sans font-medium"
-          >
-            <ArrowLeft className="w-4 h-4" /> 목록으로 돌아가기
-          </button>
+      <main className="flex-1 max-w-2xl w-full mx-auto px-4 py-8">
+        <Link
+          href="/"
+          className="inline-flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-800 mb-4 font-medium"
+        >
+          <ArrowLeft className="w-4 h-4" />
+          <span>홈으로 돌아가기</span>
+        </Link>
 
-          <h2 className="text-xl font-bold text-slate-800">새 맛집 등록</h2>
-
-          <form onSubmit={handleSubmit} className="space-y-4 font-sans text-sm">
+        <div className="bg-white/80 backdrop-blur-xl border border-white/80 rounded-3xl p-6 sm:p-8 shadow-sm">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 pb-4 border-b border-slate-100">
             <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1">식당명 *</label>
+              <h1 className="text-2xl font-bold text-slate-900">🛵 새 배달 맛집 등록</h1>
+              <p className="text-xs text-slate-500 mt-1">
+                실패 없는 나의 인생 배달 맛집 정보를 입력해 주세요.
+              </p>
+            </div>
+
+            {/* AI 영수증 3초 스캐너 버튼 */}
+            <button
+              type="button"
+              onClick={() => setOcrModalOpen(true)}
+              className="px-4 py-2 rounded-2xl bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs shadow-md transition-all flex items-center gap-1.5 shrink-0"
+            >
+              <Sparkles className="w-4 h-4" />
+              <span>Gemini AI 영수증 인식</span>
+            </button>
+          </div>
+
+          <form onSubmit={handleSubmit} className="space-y-5 text-sm">
+            {/* 가게 이름 */}
+            <div className="relative">
+              <label className="block font-bold text-slate-800 mb-1">식당 / 가게 이름 *</label>
               <input
                 type="text"
                 required
-                placeholder="예: BBQ 치킨 강남점"
-                value={formData.name}
-                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                className="w-full px-3.5 py-2 border border-sky-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-sky-300"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="예: 굽네치킨 역삼점"
+                className="w-full px-4 py-3 rounded-xl border border-slate-300 text-base focus:ring-2 focus:ring-blue-500/30"
+                autoComplete="off"
               />
+              {(searchingStores || storeSuggestions.length > 0) && (
+                <div className="absolute z-30 mt-1 w-full overflow-hidden rounded-xl border border-sky-200 bg-white shadow-xl">
+                  <div className="border-b border-slate-100 px-3 py-2 text-[11px] font-bold text-sky-700">
+                    {searchingStores ? '기존 맛집 검색 중...' : '이미 등록된 맛집인가요? 선택해서 리뷰를 남기세요.'}
+                  </div>
+                  {!searchingStores && storeSuggestions.map((store) => {
+                    const representative = store.delivery_menus?.find((menu) => menu.is_representative)?.name
+                    const region = [store.sido, store.sigungu].filter(Boolean).join(' ')
+                    return (
+                      <button
+                        key={store.id}
+                        type="button"
+                        onClick={() => router.push(`/delivery/${store.id}`)}
+                        className="flex w-full items-center justify-between gap-3 border-b border-slate-50 px-4 py-3 text-left last:border-0 hover:bg-sky-50"
+                      >
+                        <span className="min-w-0">
+                          <strong className="block truncate text-sm text-slate-800">{store.name}</strong>
+                          <span className="block truncate text-[11px] text-slate-500">
+                            {[region, representative && `대표 메뉴 ${representative}`].filter(Boolean).join(' · ') || '기존 등록 게시물'}
+                          </span>
+                        </span>
+                        <span className="shrink-0 rounded-lg bg-sky-600 px-2.5 py-1.5 text-[11px] font-bold text-white">리뷰 보기</span>
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            {/* 카테고리 & 배달앱 */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs font-medium text-slate-600 mb-1">카테고리</label>
+                <label className="block font-bold text-slate-800 mb-1">음식 카테고리 *</label>
                 <select
-                  value={formData.category}
-                  onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-                  className="w-full px-3.5 py-2 border border-sky-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-sky-300 bg-white"
+                  value={category}
+                  onChange={(e) => setCategory(e.target.value)}
+                  className="w-full px-3 py-2.5 rounded-xl border border-slate-300 text-sm bg-white"
                 >
+                  <option value="" disabled>선택</option>
                   {FORM_CATEGORIES.map((c) => (
                     <option key={c} value={c}>
-                      {CATEGORY_EMOJI[c] ? `${CATEGORY_EMOJI[c]} ${c}` : c}
+                      {c}
                     </option>
                   ))}
                 </select>
               </div>
+
               <div>
-                <label className="block text-xs font-medium text-slate-600 mb-1">주요 이용 배달앱</label>
+                <label className="block font-bold text-slate-800 mb-1">주요 이용 배달앱 *</label>
                 <select
-                  value={formData.app_name}
-                  onChange={(e) => setFormData({ ...formData, app_name: e.target.value })}
-                  className="w-full px-3.5 py-2 border border-sky-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-sky-300 bg-white"
+                  value={appName}
+                  onChange={(e) => setAppName(e.target.value)}
+                  className="w-full px-3 py-2.5 rounded-xl border border-slate-300 text-sm bg-white"
                 >
-                  {APP_NAMES.map((a) => (
-                    <option key={a}>{a}</option>
+                  <option value="" disabled>선택</option>
+                  {APP_NAMES.map((app) => (
+                    <option key={app} value={app}>
+                      {app}
+                    </option>
                   ))}
                 </select>
               </div>
             </div>
 
-            <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1">최소주문금액 (원)</label>
-              <input
-                type="number"
-                min={0}
-                value={formData.min_order}
-                onChange={(e) => setFormData({ ...formData, min_order: Number(e.target.value) })}
-                placeholder="15000"
-                className="w-full px-3.5 py-2 border border-sky-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-sky-300"
-              />
+            {/* 최소주문금액 & 평점 */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block font-bold text-slate-800 mb-1">최소주문금액 (원) *</label>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={minOrder}
+                  onChange={(e) => setMinOrder(formatNumberWithComma(e.target.value))}
+                  placeholder="입력"
+                  required
+                  className="w-full px-4 py-3 rounded-xl border border-slate-300 text-base"
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-800 mb-1">만족도 평점 (0.5~5점) *</label>
+                <div className="pt-1">
+                  <StarRating
+                    rating={rating}
+                    editable
+                    onChange={(r) => setRating(r)}
+                    size="lg"
+                  />
+                  {rating === 0 && <p className="mt-1 text-xs font-semibold text-rose-500">별을 눌러 만족도를 선택해 주세요.</p>}
+                </div>
+              </div>
             </div>
 
-            <RegionMenuFields value={formData} onChange={patchRegion} />
+            {/* 메뉴 입력 (최대 30개 동적 입력) */}
+            <div className="pt-3">
+              <div className="flex items-center justify-between mb-2">
+                <label className="font-bold text-slate-800">
+                  📋 추천 메뉴명·가격 *
+                </label>
+                <button
+                  type="button"
+                  onClick={handleAddMenu}
+                  className="text-blue-600 hover:underline text-xs font-semibold flex items-center gap-1"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>[+ 메뉴 추가]</span>
+                </button>
+              </div>
 
-            <MenuInput rows={menuRows} onChange={setMenuRows} />
+              <div className="space-y-2">
+                {menus.map((m, idx) => (
+                  <div key={idx} className="flex gap-2 items-center">
+                    <input
+                      type="text"
+                      placeholder="메뉴명 (예: 고추바사삭)"
+                      value={m.name}
+                      required
+                      onChange={(e) => handleMenuChange(idx, 'name', e.target.value)}
+                      className="flex-1 px-3 py-2.5 rounded-xl border border-slate-300 text-sm"
+                    />
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      placeholder="가격 (원)"
+                      value={m.price}
+                      required
+                      onChange={(e) => handleMenuChange(idx, 'price', formatNumberWithComma(e.target.value))}
+                      className="w-32 px-3 py-2.5 rounded-xl border border-slate-300 text-sm"
+                    />
+                    <label className="flex items-center gap-1 text-[11px] font-semibold text-slate-600 cursor-pointer shrink-0">
+                      <input
+                        type="checkbox"
+                        checked={m.is_representative}
+                        onChange={(e) =>
+                          handleMenuChange(idx, 'is_representative', e.target.checked)
+                        }
+                      />
+                      <span>대표</span>
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveMenu(idx)}
+                      className="p-1 text-slate-400 hover:text-rose-500"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
 
             <RepresentativeMenuImageInput
               value={representativeImage}
@@ -230,38 +508,38 @@ export default function RegisterPage() {
               disabled={submitting}
             />
 
-            <div className="pt-2 border-t border-slate-100">
-              <label className="block text-xs font-medium text-slate-600 mb-1">평점 (1~5점)</label>
-              <StarRating
-                rating={formData.rating}
-                onChange={(r) => setFormData({ ...formData, rating: r })}
-                size="w-6 h-6"
-              />
-            </div>
-
+            {/* 한줄평 */}
             <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1">한줄평</label>
+              <label className="block font-bold text-slate-800 mb-1">
+                💬 솔직한 추천 한줄평 / 꿀팁
+              </label>
               <textarea
                 rows={3}
-                value={formData.memo}
-                onChange={(e) => setFormData({ ...formData, memo: e.target.value })}
-                placeholder="이 맛집에 대한 감상을 자유롭게 적어주세요."
-                className="w-full px-3.5 py-2 border border-sky-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-sky-300 resize-none font-serif"
+                value={memo}
+                onChange={(e) => setMemo(e.target.value)}
+                placeholder="예: 마블링 소스 추가는 필수! 튀김옷이 끝까지 바삭함."
+                className="w-full p-3 rounded-xl border border-slate-300 text-xs"
               />
             </div>
-
-            {error && <p className="text-xs text-rose-500 font-medium">{error}</p>}
 
             <button
               type="submit"
               disabled={submitting}
-              className="w-full bg-sky-500 hover:bg-sky-600 text-white font-medium py-3 rounded-xl transition flex items-center justify-center gap-1 shadow-sm mt-2 disabled:opacity-50"
+              className="w-full py-4 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm shadow-md transition-all disabled:opacity-50"
             >
-              <Check className="w-4 h-4" /> {submitting ? '저장 중...' : '맛집 저장하기'}
+              {submitting ? '맛집 정보 저장 중...' : '등록하기 완료'}
             </button>
           </form>
         </div>
       </main>
+
+      <BottomNav />
+
+      <ReceiptScannerModal
+        isOpen={ocrModalOpen}
+        onClose={() => setOcrModalOpen(false)}
+        onScanSuccess={handleOcrSuccess}
+      />
     </div>
   )
 }

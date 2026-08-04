@@ -1,7 +1,17 @@
 import type { DeliveryMenu } from '@/lib/types'
 
 // 맛집당 등록 가능한 최대 메뉴 수 (DB 트리거와 동일한 값)
-export const MAX_MENUS = 5
+export const MAX_MENUS = 30
+
+export function formatPriceInput(value: string | number): string {
+  const digits = String(value).replace(/[^0-9]/g, '')
+  return digits ? Number(digits).toLocaleString('ko-KR') : ''
+}
+
+export function parsePriceInput(value: string): number {
+  return Number(value.replace(/,/g, '')) || 0
+}
+
 
 // 등록/수정 폼에서 다루는 메뉴 한 줄 (입력 중에는 가격이 문자열)
 export interface MenuFormRow {
@@ -32,7 +42,7 @@ export function toMenuRows(menus: DeliveryMenu[] | undefined | null): MenuFormRo
     .slice(0, MAX_MENUS)
     .map((m) => ({
       name: m.name ?? '',
-      price: m.price === null || m.price === undefined ? '' : String(m.price),
+      price: m.price === null || m.price === undefined ? '' : formatPriceInput(m.price),
       is_representative: Boolean(m.is_representative),
     }))
 
@@ -71,7 +81,7 @@ export function validateMenuRows(rows: MenuFormRow[]): MenuValidation {
   if (touched.some((r) => r.price.trim() === '')) {
     return { ok: false, error: '가격을 입력하지 않은 메뉴가 있습니다.' }
   }
-  if (touched.some((r) => !Number.isInteger(Number(r.price)) || Number(r.price) < 0)) {
+  if (touched.some((r) => !Number.isInteger(parsePriceInput(r.price)) || parsePriceInput(r.price) < 0)) {
     return { ok: false, error: '가격은 0원 이상의 정수로 입력해 주세요.' }
   }
 
@@ -88,7 +98,7 @@ export function validateMenuRows(rows: MenuFormRow[]): MenuValidation {
     ok: true,
     rows: touched.map((r, idx) => ({
       name: r.name.trim(),
-      price: Number(r.price),
+      price: parsePriceInput(r.price),
       is_representative: r.is_representative,
       sort_order: idx,
     })),

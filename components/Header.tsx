@@ -1,139 +1,136 @@
 'use client'
 
-import { useState } from 'react'
-import { useRouter } from 'next/navigation'
-import { Plus, LogOut, LogIn, UserPlus } from 'lucide-react'
-import type { User } from '@supabase/supabase-js'
+import Link from 'next/link'
+import { useEffect, useState } from 'react'
+import { MapPin, LogIn, LogOut, Sparkles, Bike } from 'lucide-react'
+import { useAuth } from '@/lib/useAuth'
 import { supabase } from '@/lib/supabase'
-import TodayPickModal from '@/components/TodayPickModal'
-import LoginRequiredModal from '@/components/LoginRequiredModal'
+import { useRouter } from 'next/navigation'
+import { getUserAvatarUrl } from '@/lib/userAvatar'
 
-type GateTarget = 'register'
-
-const GATE_MESSAGE: Record<GateTarget, string> = {
-  register: '맛집을 등록하려면 로그인이 필요합니다.',
+interface HeaderProps {
+  user?: any
+  onOpenTodayPick?: () => void
+  userRegionName?: string | null
+  onGetLocation?: () => void
 }
 
-const GATE_NEXT: Record<GateTarget, string> = {
-  register: '/register',
-}
-
-export default function Header({ user }: { user: User | null }) {
+export default function Header({
+  onOpenTodayPick,
+  userRegionName,
+  onGetLocation,
+}: HeaderProps) {
+  const { user } = useAuth()
   const router = useRouter()
-  const [pickOpen, setPickOpen] = useState(false)
-  const [gate, setGate] = useState<GateTarget | null>(null)
+  const avatarUrl = getUserAvatarUrl(user)
+  const [savedRegionName, setSavedRegionName] = useState<string | null>(null)
 
-  const nickname = user
-    ? (user.user_metadata?.nickname as string) || user.email?.split('@')[0] || '회원'
-    : ''
+  useEffect(() => {
+    setSavedRegionName(localStorage.getItem('deliverypick-region-name'))
+  }, [userRegionName])
 
   const handleLogout = async () => {
-    await supabase.auth.signOut()
-    // 로그아웃해도 공개 목록은 계속 볼 수 있어야 하므로 /login이 아닌 /로 이동
-    router.replace('/')
+    const { error } = await supabase.auth.signOut()
+    if (error) {
+      alert(`로그아웃에 실패했습니다: ${error.message}`)
+      return
+    }
+    alert('로그아웃되었습니다.')
+    router.push('/')
     router.refresh()
   }
 
-  const handlePickClick = () => {
-    setPickOpen(true)
-  }
-
-  const handleRegisterClick = () => {
-    if (!user) {
-      setGate('register')
-      return
-    }
-    router.push('/register')
-  }
-
   return (
-    <>
-      <header className="bg-sky-100/80 backdrop-blur-md border-b border-sky-200 sticky top-0 z-10">
-        <div className="max-w-4xl mx-auto px-4 sm:px-6 py-3 sm:py-4 flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
-          <div
-            className="cursor-pointer flex items-baseline gap-2 shrink-0"
-            onClick={() => router.push('/')}
-          >
-            <h1 className="text-xl sm:text-2xl font-bold text-sky-900 tracking-wide">
-              <span aria-hidden="true">🛵</span> 딜리버리픽
-            </h1>
-            <span className="text-[11px] sm:text-xs text-sky-600 font-sans font-medium inline">
-              수도권 배달맛집 Beta
-            </span>
+    <header className="sticky top-0 z-40 w-full bg-white/80 backdrop-blur-md border-b border-white/60 shadow-sm">
+      <div className="max-w-6xl mx-auto px-4 h-20 flex items-center justify-between gap-2">
+        {/* 로고 */}
+        <Link href="/" className="flex items-center gap-2 group shrink-0">
+          <div className="p-1.5 rounded-xl bg-blue-50 group-hover:bg-blue-100 transition-colors">
+            <Bike className="w-7 h-7 text-blue-600" />
           </div>
+          <span className="font-extrabold text-3xl sm:text-4xl tracking-tight text-slate-800 font-serif group-hover:text-blue-600 transition-colors">
+            DeliveryPick
+          </span>
+        </Link>
 
-          <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap justify-end">
-            {user && (
-              <span className="text-xs font-sans text-sky-800 bg-sky-200/60 px-3 py-1.5 rounded-full font-medium hidden lg:inline-block">
-                👤 {nickname}님의 배달노트
-              </span>
-            )}
-
-            {/* 🌈 오늘 뭐 먹지? — 비회원도 이용 가능 */}
+        {/* 중앙: 위치 바 */}
+        <div className="hidden sm:flex items-center gap-1.5 px-4 py-2 rounded-full bg-sky-50/80 border border-sky-100/80 text-base text-slate-700 min-w-0">
+          <MapPin className="w-5 h-5 text-blue-600 shrink-0" />
+          <span className="font-medium whitespace-nowrap">
+            {userRegionName || savedRegionName || '위치 설정 안 됨'}
+          </span>
+          {onGetLocation && (
             <button
-              type="button"
-              onClick={handlePickClick}
-              className="animate-rainbow text-white px-2.5 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-sans font-extrabold shadow-md hover:scale-105 active:scale-95 transition-transform flex items-center gap-1.5 border border-white/40 whitespace-nowrap"
+              onClick={onGetLocation}
+              className="ml-1 text-sm text-blue-600 hover:underline font-semibold shrink-0"
             >
-              <span aria-hidden="true">🎲</span>
-              <span className="hidden sm:inline">오늘 뭐 먹지?</span>
-              <span className="sr-only sm:hidden">오늘 뭐 먹지?</span>
+              [내 위치]
             </button>
+          )}
+        </div>
 
-            {/* 맛집 등록 — 비회원도 보이지만 클릭 시 로그인 안내 */}
+        {/* 우측: 상단 콤팩트 3D 파스텔 무지개 버튼 & 프로필 */}
+        <div className="flex items-center gap-2.5">
+          {onOpenTodayPick && (
             <button
-              type="button"
-              onClick={handleRegisterClick}
-              className="flex items-center gap-1 bg-sky-500 hover:bg-sky-600 text-white px-2.5 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-sans transition shadow-sm font-medium whitespace-nowrap"
+              onClick={onOpenTodayPick}
+              className="btn-top-compact-rainbow-3d"
+              title="AI 오늘 뭐먹지? 맛집 룰렛"
             >
-              <Plus className="w-4 h-4" />
-              <span className="hidden sm:inline">맛집 등록</span>
-              <span className="sr-only sm:hidden">맛집 등록</span>
+              <Sparkles className="w-4 h-4 text-purple-600 animate-pulse" />
+              <span>AI 오늘 뭐먹지?</span>
             </button>
+          )}
 
-            {user ? (
+          {user ? (
+            <>
+              <Link
+                href="/mypage"
+                className="flex items-center gap-2 p-1 rounded-full hover:bg-slate-100/80 transition-all border border-slate-200/60"
+                title="마이페이지"
+              >
+                {avatarUrl ? (
+                  <img
+                    src={avatarUrl}
+                    alt="프로필"
+                    referrerPolicy="no-referrer"
+                    className="rounded-full object-cover w-10 h-10 border border-blue-200"
+                  />
+                ) : (
+                  <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold text-sm">
+                    {user.email?.slice(0, 2).toUpperCase() || 'MY'}
+                  </div>
+                )}
+              </Link>
               <button
                 type="button"
                 onClick={handleLogout}
+                className="flex items-center gap-1.5 px-3 py-2.5 rounded-full border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 hover:text-slate-900 text-sm font-semibold transition-all"
                 title="로그아웃"
-                aria-label="로그아웃"
-                className="p-2 text-sky-700 hover:text-sky-900 hover:bg-sky-200/50 rounded-xl transition shrink-0"
               >
                 <LogOut className="w-4 h-4" />
+                <span className="hidden lg:inline">로그아웃</span>
               </button>
-            ) : (
-              <>
-                <button
-                  type="button"
-                  onClick={() => router.push('/login')}
-                  className="flex items-center gap-1 px-2.5 sm:px-3.5 py-2 border border-sky-300 text-sky-800 hover:text-sky-900 hover:bg-white rounded-xl text-xs sm:text-sm font-sans font-semibold transition whitespace-nowrap"
-                >
-                  <LogIn className="w-4 h-4 sm:hidden" aria-hidden="true" />
-                  <span>로그인</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => router.push('/signup')}
-                  className="flex items-center gap-1 px-2.5 sm:px-3.5 py-2 border border-sky-300 text-sky-800 hover:bg-white rounded-xl text-xs sm:text-sm font-sans font-semibold transition whitespace-nowrap"
-                >
-                  <UserPlus className="w-4 h-4 sm:hidden" aria-hidden="true" />
-                  <span>회원가입</span>
-                </button>
-              </>
-            )}
-          </div>
+            </>
+          ) : (
+            <>
+              <Link
+                href="/login"
+                className="flex items-center gap-1.5 px-3 sm:px-4 py-2.5 rounded-full bg-blue-600 hover:bg-blue-700 text-white text-sm sm:text-base font-medium transition-all shadow-sm"
+              >
+                <LogIn className="w-4 h-4 sm:w-5 sm:h-5" />
+                <span>로그인</span>
+              </Link>
+              <Link
+                href="/signup"
+                className="px-3 sm:px-4 py-2.5 rounded-full border border-blue-200 bg-white hover:bg-blue-50 text-blue-700 text-sm sm:text-base font-semibold transition-all"
+              >
+                회원가입
+              </Link>
+            </>
+          )}
         </div>
-      </header>
-
-      {pickOpen && <TodayPickModal onClose={() => setPickOpen(false)} />}
-
-      {gate && (
-        <LoginRequiredModal
-          description={GATE_MESSAGE[gate]}
-          next={GATE_NEXT[gate]}
-          onClose={() => setGate(null)}
-        />
-      )}
-    </>
+      </div>
+    </header>
   )
 }

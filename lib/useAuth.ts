@@ -3,6 +3,21 @@
 import { useEffect, useState } from 'react'
 import type { User } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
+import { getUserAvatarUrl } from '@/lib/userAvatar'
+
+const syncedAvatarUsers = new Set<string>()
+
+function syncReviewAvatar(user: User) {
+  if (syncedAvatarUsers.has(user.id)) return
+  const avatarUrl = getUserAvatarUrl(user)
+  if (!avatarUrl) return
+  syncedAvatarUsers.add(user.id)
+  void supabase
+    .from('deliveries')
+    .update({ user_avatar_url: avatarUrl })
+    .eq('user_id', user.id)
+    .then(() => undefined)
+}
 
 /**
  * 공개 화면용 선택 인증 훅.
@@ -20,7 +35,9 @@ export function useAuth() {
       .getSession()
       .then(({ data }) => {
         if (!active) return
-        setUser(data.session?.user ?? null)
+        const nextUser = data.session?.user ?? null
+        setUser(nextUser)
+        if (nextUser) syncReviewAvatar(nextUser)
         setLoading(false)
       })
       .catch(() => {
@@ -34,6 +51,7 @@ export function useAuth() {
       const nextUser = session?.user ?? null
       // 같은 사용자면 참조를 유지해 불필요한 리렌더를 막는다
       setUser((prev) => (prev?.id === nextUser?.id ? prev : nextUser))
+      if (nextUser) syncReviewAvatar(nextUser)
       setLoading(false)
     })
 
