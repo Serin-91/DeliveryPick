@@ -189,6 +189,8 @@ function ListPageContent() {
             setUserLocation(location)
             setUseGpsForPick(true)
             setLocationPermissionDenied(false)
+            setPickSido('')
+            setPickSigungu('')
             setUserRegionName(location.fullRegion)
             localStorage.setItem('deliverypick-location', JSON.stringify(location))
             localStorage.setItem('deliverypick-region-name', location.fullRegion)
@@ -243,11 +245,6 @@ function ListPageContent() {
   const handlePickSigunguChange = (sigungu: string) => {
     setPickSigungu(sigungu)
     setUseGpsForPick(false)
-  }
-
-  const handleOpenLocationPick = () => {
-    setTodayPickModalOpen(true)
-    handleGetLocation()
   }
 
   // 하트 즐겨찾기 토글
@@ -346,7 +343,7 @@ function ListPageContent() {
       <Header
         onOpenTodayPick={() => setTodayPickModalOpen(true)}
         userRegionName={userRegionName}
-        onGetLocation={handleOpenLocationPick}
+        onGetLocation={handleGetLocation}
       />
 
       <main className="flex-1 max-w-6xl w-full mx-auto px-4 py-6">

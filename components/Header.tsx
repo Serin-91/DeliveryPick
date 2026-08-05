@@ -61,10 +61,12 @@ export default function Header({
           </span>
           {onGetLocation && (
             <button
+              type="button"
               onClick={onGetLocation}
               className="ml-1 text-sm text-blue-600 hover:underline font-semibold shrink-0"
+              title="현재 위치 정보 갱신"
             >
-              [내 위치]
+              [위치정보 갱신]
             </button>
           )}
         </div>

@@ -138,24 +138,25 @@ export default function TodayPickModal({
           </p>
         </div>
 
-        {selection.mode !== 'gps' && (
-          <div className="mb-5 rounded-2xl border border-sky-100 bg-sky-50/70 p-4">
-            <button
-              type="button"
-              onClick={onRequestLocation}
-              className="flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-3 text-sm font-bold text-white shadow-sm transition-colors hover:bg-blue-700"
-            >
-              <MapPin className="h-4 w-4" />
-              <span>내 위치 사용</span>
-            </button>
+        <div className="mb-5 rounded-2xl border border-sky-100 bg-sky-50/70 p-4">
+          <button
+            type="button"
+            onClick={onRequestLocation}
+            className="flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-3 text-sm font-bold text-white shadow-sm transition-colors hover:bg-blue-700"
+          >
+            <MapPin className="h-4 w-4" />
+            <span>
+              {selection.mode === 'gps' ? '현재 위치 사용 중 · 위치 갱신' : '내 위치 사용'}
+            </span>
+          </button>
 
-            <div className="my-3 flex items-center gap-3 text-[11px] text-slate-400">
-              <span className="h-px flex-1 bg-slate-200" />
-              <span>또는 지역 직접 선택</span>
-              <span className="h-px flex-1 bg-slate-200" />
-            </div>
+          <div className="my-3 flex items-center gap-3 text-[11px] text-slate-400">
+            <span className="h-px flex-1 bg-slate-200" />
+            <span>또는 지역 직접 선택</span>
+            <span className="h-px flex-1 bg-slate-200" />
+          </div>
 
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
               <select
                 aria-label="오늘 뭐 먹지 시/도 선택"
                 value={pickSido}
@@ -179,22 +180,21 @@ export default function TodayPickModal({
                   <option key={sigungu} value={sigungu}>{sigungu}</option>
                 ))}
               </select>
-            </div>
-
-            {locationPermissionDenied && (
-              <div className="hidden sm:block mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-left text-xs leading-relaxed text-amber-900">
-                <p className="font-bold">위치 권한이 차단되어 있습니다.</p>
-                <p className="mt-2 font-semibold">Chrome / Edge 기준</p>
-                <ol className="mt-1 list-decimal space-y-1 pl-4">
-                  <li>주소창 왼쪽의 자물쇠 또는 사이트 정보 아이콘을 누릅니다.</li>
-                  <li>[사이트 설정]을 선택합니다.</li>
-                  <li>[위치]를 [허용]으로 변경합니다.</li>
-                  <li>페이지를 새로고침한 뒤 [내 위치 사용]을 다시 눌러주세요.</li>
-                </ol>
-              </div>
-            )}
           </div>
-        )}
+
+          {locationPermissionDenied && (
+            <div className="hidden sm:block mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-left text-xs leading-relaxed text-amber-900">
+              <p className="font-bold">위치 권한이 차단되어 있습니다.</p>
+              <p className="mt-2 font-semibold">Chrome / Edge 기준</p>
+              <ol className="mt-1 list-decimal space-y-1 pl-4">
+                <li>주소창 왼쪽의 자물쇠 또는 사이트 정보 아이콘을 누릅니다.</li>
+                <li>[사이트 설정]을 선택합니다.</li>
+                <li>[위치]를 [허용]으로 변경합니다.</li>
+                <li>페이지를 새로고침한 뒤 [내 위치 사용]을 다시 눌러주세요.</li>
+              </ol>
+            </div>
+          )}
+        </div>
 
         <div className="my-6 py-4 flex flex-col items-center justify-center min-h-[140px]">
           <Dice3D rolling={rolling} targetNumber={targetNumber} />
