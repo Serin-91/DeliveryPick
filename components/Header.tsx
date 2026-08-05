@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
-import { MapPin, LogIn, LogOut, Sparkles, Bike } from 'lucide-react'
+import { MapPin, LogIn, LogOut, Dices, Bike } from 'lucide-react'
 import { useAuth } from '@/lib/useAuth'
 import { supabase } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
@@ -42,7 +42,7 @@ export default function Header({
 
   return (
     <header className="sticky top-0 z-40 w-full bg-white/80 backdrop-blur-md border-b border-white/60 shadow-sm">
-      <div className="max-w-6xl mx-auto px-4 h-20 flex items-center justify-between gap-2">
+      <div className="max-w-6xl mx-auto px-4 min-h-20 py-2 flex flex-wrap sm:flex-nowrap items-center justify-between gap-2">
         {/* 로고 */}
         <Link href="/" className="flex items-center gap-1.5 sm:gap-2 group shrink-0 min-w-0">
           <div className="p-1.5 rounded-xl bg-blue-50 group-hover:bg-blue-100 transition-colors shrink-0">
@@ -54,9 +54,9 @@ export default function Header({
         </Link>
 
         {/* 중앙: 위치 바 */}
-        <div className="hidden sm:flex items-center gap-1.5 px-4 py-2 rounded-full bg-sky-50/80 border border-sky-100/80 text-base text-slate-700 min-w-0">
-          <MapPin className="w-5 h-5 text-blue-600 shrink-0" />
-          <span className="font-medium whitespace-nowrap">
+        <div className="order-3 sm:order-none flex w-full sm:w-auto items-center justify-center gap-1.5 px-3 sm:px-4 py-1.5 sm:py-2 rounded-full bg-sky-50/80 border border-sky-100/80 text-sm sm:text-base text-slate-700 min-w-0">
+          <MapPin className="w-4 h-4 sm:w-5 sm:h-5 text-blue-600 shrink-0" />
+          <span className="font-medium truncate">
             {userRegionName || savedRegionName || '위치 설정 안 됨'}
           </span>
           {onGetLocation && (
@@ -73,12 +73,14 @@ export default function Header({
         <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
           {onOpenTodayPick && (
             <button
+              type="button"
               onClick={onOpenTodayPick}
               className="btn-top-compact-rainbow-3d"
-              title="AI 오늘 뭐먹지? 맛집 룰렛"
+              title="오늘 뭐 먹지? 내 주변 맛집 추천"
+              aria-label="오늘 뭐 먹지? 내 주변 맛집 추천"
             >
-              <Sparkles className="w-4 h-4 text-purple-600 animate-pulse" />
-              <span>AI 오늘 뭐먹지?</span>
+              <Dices className="w-4 h-4 text-purple-600" />
+              <span className="hidden sm:inline">오늘 뭐 먹지?</span>
             </button>
           )}
 

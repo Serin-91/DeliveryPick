@@ -159,7 +159,7 @@ export default function EditPage() {
       ...prev,
       name: data.storeName || prev.name,
       app_name: data.appName && APP_NAMES.includes(data.appName) ? data.appName : prev.app_name,
-      min_order: data.totalAmount ? formatPriceInput(data.totalAmount) : prev.min_order,
+      // 영수증의 "총결제금액"은 가게의 "최소주문금액" 정책과 다른 값이므로 자동입력하지 않는다.
       order_number: data.orderNumber ? `${data.appName || 'APP'}_${data.orderNumber}` : prev.order_number,
       is_verified: true,
     } : prev)

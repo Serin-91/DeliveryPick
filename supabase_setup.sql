@@ -1,233 +1,267 @@
--- ============================================================
--- DeliveryPick 스키마 설정 (모두 멱등 — 여러 번 실행해도 안전)
--- ============================================================
+-- ========================================================
+-- 🛵 DeliveryPick (딜리버리픽) v1.2 데이터베이스 및 스토리지 스크립트
+-- ========================================================
 
--- 1. deliveries: 작성자 닉네임
-ALTER TABLE public.deliveries ADD COLUMN IF NOT EXISTS user_nickname text;
+-- 1. deliveries 테이블 컬럼 확장
+-- 서비스 닉네임은 소셜 제공자 정보와 분리해 관리한다.
+CREATE TABLE IF NOT EXISTS profiles (
+  user_id UUID PRIMARY KEY REFERENCES auth.users ON DELETE CASCADE,
+  nickname TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
 
--- 2. deliveries: 지역 정보 (시/도 + 시/군/구)
-ALTER TABLE public.deliveries ADD COLUMN IF NOT EXISTS sido text;
-ALTER TABLE public.deliveries ADD COLUMN IF NOT EXISTS sigungu text;
+ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
+CREATE UNIQUE INDEX IF NOT EXISTS profiles_nickname_unique_idx
+  ON profiles (lower(nickname)) WHERE nickname IS NOT NULL;
+DROP POLICY IF EXISTS "본인 프로필 조회" ON profiles;
+CREATE POLICY "본인 프로필 조회" ON profiles FOR SELECT USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "본인 프로필 생성" ON profiles;
+CREATE POLICY "본인 프로필 생성" ON profiles FOR INSERT WITH CHECK (auth.uid() = user_id);
+DROP POLICY IF EXISTS "본인 프로필 수정" ON profiles;
+CREATE POLICY "본인 프로필 수정" ON profiles FOR UPDATE USING (auth.uid() = user_id);
+GRANT SELECT, INSERT, UPDATE ON TABLE profiles TO authenticated;
 
--- 대표 메뉴 사진은 Storage의 객체 경로만 저장한다 (공개 URL/바이너리는 DB에 저장하지 않음)
-ALTER TABLE public.deliveries ADD COLUMN IF NOT EXISTS image_path text;
-
--- 지역 기반 랜덤 추천("오늘 뭐 먹지?") 조회 성능용 인덱스
-CREATE INDEX IF NOT EXISTS deliveries_region_idx ON public.deliveries (sido, sigungu);
-
--- 3. 닉네임 중복 검사용 RPC
-CREATE OR REPLACE FUNCTION public.check_nickname_exists(input_nickname text)
-RETURNS boolean
-LANGUAGE plpgsql
+CREATE OR REPLACE FUNCTION check_nickname_exists(input_nickname TEXT)
+RETURNS BOOLEAN
+LANGUAGE sql
 SECURITY DEFINER
 SET search_path = public
 AS $$
-BEGIN
-  RETURN EXISTS (
-    SELECT 1
-    FROM auth.users
-    WHERE LOWER(raw_user_meta_data->>'nickname') = LOWER(TRIM(input_nickname))
+  SELECT EXISTS (
+    SELECT 1 FROM profiles WHERE lower(nickname) = lower(trim(input_nickname))
+    UNION ALL
+    SELECT 1 FROM deliveries WHERE lower(user_nickname) = lower(trim(input_nickname))
   );
-END;
 $$;
+GRANT EXECUTE ON FUNCTION check_nickname_exists(TEXT) TO authenticated;
 
--- ============================================================
--- 4. delivery_menus: 맛집별 메뉴 (대표 1개 + 추가 최대 4개)
--- ============================================================
-CREATE TABLE IF NOT EXISTS public.delivery_menus (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  delivery_id uuid NOT NULL REFERENCES public.deliveries(id) ON DELETE CASCADE,
-  name text NOT NULL,
-  price integer NOT NULL CHECK (price >= 0),
-  is_representative boolean NOT NULL DEFAULT false,
-  sort_order integer NOT NULL DEFAULT 0,
-  created_at timestamp with time zone DEFAULT timezone('utc'::text, now())
+ALTER TABLE deliveries ADD COLUMN IF NOT EXISTS sido TEXT;
+ALTER TABLE deliveries ADD COLUMN IF NOT EXISTS sigungu TEXT;
+ALTER TABLE deliveries ADD COLUMN IF NOT EXISTS kakao_place_id TEXT;
+ALTER TABLE deliveries ADD COLUMN IF NOT EXISTS address TEXT;
+ALTER TABLE deliveries ADD COLUMN IF NOT EXISTS lat DOUBLE PRECISION;
+ALTER TABLE deliveries ADD COLUMN IF NOT EXISTS lng DOUBLE PRECISION;
+ALTER TABLE deliveries ADD COLUMN IF NOT EXISTS place_url TEXT;
+ALTER TABLE deliveries ADD COLUMN IF NOT EXISTS order_number TEXT UNIQUE;
+ALTER TABLE deliveries ADD COLUMN IF NOT EXISTS is_verified BOOLEAN DEFAULT false;
+ALTER TABLE deliveries ADD COLUMN IF NOT EXISTS report_count INTEGER DEFAULT 0;
+ALTER TABLE deliveries ADD COLUMN IF NOT EXISTS is_hidden BOOLEAN DEFAULT false;
+ALTER TABLE deliveries ADD COLUMN IF NOT EXISTS user_nickname TEXT;
+ALTER TABLE deliveries ADD COLUMN IF NOT EXISTS user_avatar_url TEXT;
+-- 별점은 0.5점 단위 입력을 지원한다.
+ALTER TABLE deliveries ALTER COLUMN rating TYPE NUMERIC(2,1) USING rating::NUMERIC(2,1);
+ALTER TABLE deliveries DROP CONSTRAINT IF EXISTS deliveries_rating_range;
+ALTER TABLE deliveries ADD CONSTRAINT deliveries_rating_range CHECK (rating >= 0.5 AND rating <= 5.0);
+-- 같은 가게의 재등록 게시물을 최초 등록 게시물에 연결한다.
+-- 최초 등록 게시물은 NULL, 이후 리뷰는 최초 게시물 ID를 가진다.
+ALTER TABLE deliveries ADD COLUMN IF NOT EXISTS root_delivery_id UUID REFERENCES deliveries(id) ON DELETE CASCADE;
+CREATE INDEX IF NOT EXISTS deliveries_root_delivery_id_created_at_idx
+  ON deliveries(root_delivery_id, created_at DESC);
+
+-- 기존 중복 게시물은 카카오 장소 ID를 우선 사용하고, 없으면 공백을 제거한 가게명+지역으로 묶는다.
+WITH ranked AS (
+  SELECT
+    id,
+    first_value(id) OVER (
+      PARTITION BY COALESCE(
+        NULLIF(kakao_place_id, ''),
+        lower(regexp_replace(name, '\\s+', '', 'g')) || '|' || COALESCE(sido, '') || '|' || COALESCE(sigungu, '')
+      )
+      ORDER BY created_at ASC, id ASC
+    ) AS first_id,
+    row_number() OVER (
+      PARTITION BY COALESCE(
+        NULLIF(kakao_place_id, ''),
+        lower(regexp_replace(name, '\\s+', '', 'g')) || '|' || COALESCE(sido, '') || '|' || COALESCE(sigungu, '')
+      )
+      ORDER BY created_at ASC, id ASC
+    ) AS position
+  FROM deliveries
+  WHERE root_delivery_id IS NULL
+)
+UPDATE deliveries AS d
+SET root_delivery_id = ranked.first_id
+FROM ranked
+WHERE d.id = ranked.id AND ranked.position > 1;
+
+-- 후속 리뷰는 최초 등록자가 만든 메뉴명만 사용할 수 있다. 가격도 최초 메뉴를 따른다.
+CREATE OR REPLACE FUNCTION enforce_canonical_review_menu()
+RETURNS TRIGGER AS $$
+DECLARE
+  canonical_price INTEGER;
+BEGIN
+  SELECT root_menu.price INTO canonical_price
+  FROM deliveries child
+  JOIN delivery_menus root_menu ON root_menu.delivery_id = child.root_delivery_id
+  WHERE child.id = NEW.delivery_id AND root_menu.name = NEW.name;
+
+  IF EXISTS (SELECT 1 FROM deliveries WHERE id = NEW.delivery_id AND root_delivery_id IS NOT NULL) THEN
+    IF canonical_price IS NULL THEN
+      RAISE EXCEPTION '최초 등록자가 등록한 메뉴만 리뷰할 수 있습니다.';
+    END IF;
+    NEW.price := canonical_price;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS enforce_canonical_menu_on_review ON delivery_menus;
+CREATE TRIGGER enforce_canonical_menu_on_review
+BEFORE INSERT OR UPDATE ON delivery_menus
+FOR EACH ROW EXECUTE FUNCTION enforce_canonical_review_menu();
+
+-- 2. delivery_menus 메뉴 제한 (최대 30개로 확장)
+CREATE OR REPLACE FUNCTION check_max_menus_thirty()
+RETURNS TRIGGER AS $$
+DECLARE
+  menu_count INTEGER;
+BEGIN
+  SELECT COUNT(*) INTO menu_count
+  FROM delivery_menus
+  WHERE delivery_id = NEW.delivery_id;
+
+  IF menu_count >= 30 THEN
+    RAISE EXCEPTION '메뉴는 식당당 최대 30개까지만 등록할 수 있습니다.';
+  END IF;
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS enforce_max_thirty_menus ON delivery_menus;
+CREATE TRIGGER enforce_max_thirty_menus
+BEFORE INSERT ON delivery_menus
+FOR EACH ROW EXECUTE FUNCTION check_max_menus_thirty();
+
+-- 3. bookmarks (❤️ 즐겨찾기) 테이블 생성
+CREATE TABLE IF NOT EXISTS bookmarks (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id UUID REFERENCES auth.users ON DELETE CASCADE NOT NULL,
+  delivery_id UUID REFERENCES deliveries ON DELETE CASCADE NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+  UNIQUE(user_id, delivery_id)
 );
 
-CREATE INDEX IF NOT EXISTS delivery_menus_delivery_id_idx
-  ON public.delivery_menus (delivery_id);
-CREATE INDEX IF NOT EXISTS delivery_menus_is_representative_idx
-  ON public.delivery_menus (delivery_id, is_representative);
+ALTER TABLE bookmarks ENABLE ROW LEVEL SECURITY;
 
--- 대표 메뉴는 맛집당 정확히 1개만 (부분 유니크 인덱스)
-CREATE UNIQUE INDEX IF NOT EXISTS delivery_menus_one_representative_idx
-  ON public.delivery_menus (delivery_id)
-  WHERE is_representative = true;
+DROP POLICY IF EXISTS "본인 즐겨찾기 조회" ON bookmarks;
+CREATE POLICY "본인 즐겨찾기 조회" ON bookmarks FOR SELECT USING (auth.uid() = user_id);
 
--- 메뉴는 맛집당 최대 5개 (지연 제약 트리거)
-CREATE OR REPLACE FUNCTION public.enforce_max_five_menus()
-RETURNS trigger
-LANGUAGE plpgsql
-SET search_path = public
-AS $$
-BEGIN
-  IF (SELECT COUNT(*) FROM public.delivery_menus WHERE delivery_id = NEW.delivery_id) > 5 THEN
-    RAISE EXCEPTION '메뉴는 맛집당 최대 5개까지 등록할 수 있습니다.';
-  END IF;
-  RETURN NULL;
-END;
-$$;
+DROP POLICY IF EXISTS "본인 즐겨찾기 추가" ON bookmarks;
+CREATE POLICY "본인 즐겨찾기 추가" ON bookmarks FOR INSERT WITH CHECK (auth.uid() = user_id);
 
-DROP TRIGGER IF EXISTS delivery_menus_max_five_trigger ON public.delivery_menus;
-CREATE CONSTRAINT TRIGGER delivery_menus_max_five_trigger
-  AFTER INSERT OR UPDATE ON public.delivery_menus
-  DEFERRABLE INITIALLY DEFERRED
-  FOR EACH ROW
-  EXECUTE FUNCTION public.enforce_max_five_menus();
+DROP POLICY IF EXISTS "본인 즐겨찾기 삭제" ON bookmarks;
+CREATE POLICY "본인 즐겨찾기 삭제" ON bookmarks FOR DELETE USING (auth.uid() = user_id);
+GRANT SELECT, INSERT, DELETE ON TABLE bookmarks TO authenticated;
 
--- ============================================================
--- 5. RLS — 읽기는 공개, 쓰기는 작성자 본인만
--- ============================================================
+-- 4. reports (🔥 허위/주작 신고) 테이블 생성
+CREATE TABLE IF NOT EXISTS reports (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  delivery_id UUID REFERENCES deliveries ON DELETE CASCADE NOT NULL,
+  reporter_id UUID REFERENCES auth.users ON DELETE CASCADE NOT NULL,
+  report_type TEXT DEFAULT 'fake' NOT NULL, -- 'fake' | 'info_update'
+  reason TEXT NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+  UNIQUE(delivery_id, reporter_id)
+);
 
--- ----- deliveries -----
-ALTER TABLE public.deliveries ENABLE ROW LEVEL SECURITY;
+ALTER TABLE reports ENABLE ROW LEVEL SECURITY;
 
--- 비회원도 목록/상세를 볼 수 있도록 공개 조회로 전환 (구 정책은 정리)
-DROP POLICY IF EXISTS "본인 데이터 조회" ON public.deliveries;
-DROP POLICY IF EXISTS "맛집 공개 조회" ON public.deliveries;
-CREATE POLICY "맛집 공개 조회" ON public.deliveries FOR SELECT USING (true);
+DROP POLICY IF EXISTS "본인 신고 작성" ON reports;
+CREATE POLICY "본인 신고 작성" ON reports FOR INSERT WITH CHECK (auth.uid() = reporter_id);
 
-DROP POLICY IF EXISTS "본인 데이터 생성" ON public.deliveries;
-CREATE POLICY "본인 데이터 생성" ON public.deliveries FOR INSERT
-  WITH CHECK (auth.uid() = user_id);
-
-DROP POLICY IF EXISTS "본인 데이터 수정" ON public.deliveries;
-CREATE POLICY "본인 데이터 수정" ON public.deliveries FOR UPDATE
-  USING (auth.uid() = user_id)
-  WITH CHECK (auth.uid() = user_id);
-
-DROP POLICY IF EXISTS "본인 데이터 삭제" ON public.deliveries;
-CREATE POLICY "본인 데이터 삭제" ON public.deliveries FOR DELETE
-  USING (auth.uid() = user_id);
-
-GRANT SELECT ON public.deliveries TO anon, authenticated;
-GRANT INSERT, UPDATE, DELETE ON public.deliveries TO authenticated;
-
--- ----- delivery_menus -----
-ALTER TABLE public.delivery_menus ENABLE ROW LEVEL SECURITY;
-
--- 메뉴도 공개 조회 (아니면 비회원 상세·목록에서 메뉴가 비어 보인다)
-DROP POLICY IF EXISTS "본인 메뉴 조회" ON public.delivery_menus;
-DROP POLICY IF EXISTS "메뉴 공개 조회" ON public.delivery_menus;
-CREATE POLICY "메뉴 공개 조회" ON public.delivery_menus FOR SELECT USING (true);
-
--- 쓰기는 부모 맛집 작성자만 (기존 정책 유지)
-DROP POLICY IF EXISTS "본인 메뉴 생성" ON public.delivery_menus;
-CREATE POLICY "본인 메뉴 생성" ON public.delivery_menus FOR INSERT
-  WITH CHECK (EXISTS (
-    SELECT 1 FROM public.deliveries d
-    WHERE d.id = delivery_menus.delivery_id AND d.user_id = auth.uid()
-  ));
-
-DROP POLICY IF EXISTS "본인 메뉴 수정" ON public.delivery_menus;
-CREATE POLICY "본인 메뉴 수정" ON public.delivery_menus FOR UPDATE
-  USING (EXISTS (
-    SELECT 1 FROM public.deliveries d
-    WHERE d.id = delivery_menus.delivery_id AND d.user_id = auth.uid()
-  ))
-  WITH CHECK (EXISTS (
-    SELECT 1 FROM public.deliveries d
-    WHERE d.id = delivery_menus.delivery_id AND d.user_id = auth.uid()
-  ));
-
-DROP POLICY IF EXISTS "본인 메뉴 삭제" ON public.delivery_menus;
-CREATE POLICY "본인 메뉴 삭제" ON public.delivery_menus FOR DELETE
-  USING (EXISTS (
-    SELECT 1 FROM public.deliveries d
-    WHERE d.id = delivery_menus.delivery_id AND d.user_id = auth.uid()
-  ));
-
--- RLS만으로는 부족하다 — 테이블 권한(GRANT)도 반드시 함께 부여해야 한다
-GRANT SELECT ON public.delivery_menus TO anon, authenticated;
-GRANT INSERT, UPDATE, DELETE ON public.delivery_menus TO authenticated;
-
--- ============================================================
--- 6. 메뉴 전체 교체 RPC (하나의 트랜잭션 — 삭제 후 삽입 실패로 인한 유실 방지)
--- ============================================================
-CREATE OR REPLACE FUNCTION public.replace_delivery_menus(
-  p_delivery_id uuid,
-  p_menus jsonb
-)
-RETURNS void
-LANGUAGE plpgsql
-SECURITY INVOKER
-SET search_path = public
-AS $$
+-- 신고 5회 이상 시 자동 숨김 처리 트리거
+CREATE OR REPLACE FUNCTION auto_hide_on_reports()
+RETURNS TRIGGER AS $$
 DECLARE
-  v_count int;
-  v_reps int;
+  cnt INTEGER;
 BEGIN
-  v_count := jsonb_array_length(p_menus);
+  SELECT COUNT(*) INTO cnt FROM reports WHERE delivery_id = NEW.delivery_id AND report_type = 'fake';
 
-  IF v_count IS NULL OR v_count < 1 OR v_count > 5 THEN
-    RAISE EXCEPTION '메뉴는 1개 이상 5개 이하로 등록해야 합니다.';
-  END IF;
+  UPDATE deliveries
+  SET report_count = cnt,
+      is_hidden = (cnt >= 5)
+  WHERE id = NEW.delivery_id;
 
-  SELECT COUNT(*) INTO v_reps
-  FROM jsonb_array_elements(p_menus) AS m
-  WHERE (m->>'is_representative')::boolean IS TRUE;
-
-  IF v_reps <> 1 THEN
-    RAISE EXCEPTION '대표 메뉴는 정확히 1개여야 합니다.';
-  END IF;
-
-  -- SECURITY INVOKER이므로 RLS가 적용되어 본인 소유 맛집만 조작 가능
-  DELETE FROM public.delivery_menus WHERE delivery_id = p_delivery_id;
-
-  INSERT INTO public.delivery_menus (delivery_id, name, price, is_representative, sort_order)
-  SELECT
-    p_delivery_id,
-    btrim(m->>'name'),
-    (m->>'price')::integer,
-    (m->>'is_representative')::boolean,
-    (m->>'sort_order')::integer
-  FROM jsonb_array_elements(p_menus) AS m;
+  RETURN NEW;
 END;
-$$;
+$$ LANGUAGE plpgsql;
 
-REVOKE ALL ON FUNCTION public.replace_delivery_menus(uuid, jsonb) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.replace_delivery_menus(uuid, jsonb) TO authenticated;
+DROP TRIGGER IF EXISTS trigger_auto_hide_reports ON reports;
+CREATE TRIGGER trigger_auto_hide_reports
+AFTER INSERT ON reports
+FOR EACH ROW EXECUTE FUNCTION auto_hide_on_reports();
 
--- ============================================================
--- 7. 대표 메뉴 사진 Storage (공개 조회, 작성자 폴더만 쓰기)
--- ============================================================
+-- 5. Supabase Storage 'avatars' 버킷 생성 및 RLS 정책
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('avatars', 'avatars', true)
+ON CONFLICT (id) DO UPDATE SET public = true;
 
-INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
-VALUES (
-  'delivery-images',
-  'delivery-images',
-  true,
-  1048576,
-  ARRAY['image/jpeg']
-)
-ON CONFLICT (id) DO UPDATE SET
-  public = EXCLUDED.public,
-  file_size_limit = EXCLUDED.file_size_limit,
-  allowed_mime_types = EXCLUDED.allowed_mime_types;
+DROP POLICY IF EXISTS "아바타 퍼블릭 조회" ON storage.objects;
+CREATE POLICY "아바타 퍼블릭 조회" ON storage.objects
+  FOR SELECT USING (bucket_id = 'avatars');
 
--- 최종 파일명은 {로그인 사용자 UUID}/{맛집 UUID}/representative-*.jpg 형식이다.
--- 사용자는 본인 UUID로 시작하는 폴더에만 업로드·수정·삭제할 수 있다.
-DROP POLICY IF EXISTS "대표메뉴 사진 업로드" ON storage.objects;
-CREATE POLICY "대표메뉴 사진 업로드" ON storage.objects FOR INSERT TO authenticated
-  WITH CHECK (
-    bucket_id = 'delivery-images'
-    AND (storage.foldername(name))[1] = auth.uid()::text
+DROP POLICY IF EXISTS "본인 아바타 업로드" ON storage.objects;
+CREATE POLICY "본인 아바타 업로드" ON storage.objects
+  FOR INSERT WITH CHECK (
+    bucket_id = 'avatars' AND auth.uid()::text = (storage.foldername(name))[1]
   );
 
-DROP POLICY IF EXISTS "대표메뉴 사진 수정" ON storage.objects;
-CREATE POLICY "대표메뉴 사진 수정" ON storage.objects FOR UPDATE TO authenticated
-  USING (
-    bucket_id = 'delivery-images'
-    AND (storage.foldername(name))[1] = auth.uid()::text
-  )
-  WITH CHECK (
-    bucket_id = 'delivery-images'
-    AND (storage.foldername(name))[1] = auth.uid()::text
+DROP POLICY IF EXISTS "본인 아바타 수정" ON storage.objects;
+CREATE POLICY "본인 아바타 수정" ON storage.objects
+  FOR UPDATE USING (
+    bucket_id = 'avatars' AND auth.uid()::text = (storage.foldername(name))[1]
   );
 
-DROP POLICY IF EXISTS "대표메뉴 사진 삭제" ON storage.objects;
-CREATE POLICY "대표메뉴 사진 삭제" ON storage.objects FOR DELETE TO authenticated
-  USING (
-    bucket_id = 'delivery-images'
-    AND (storage.foldername(name))[1] = auth.uid()::text
+DROP POLICY IF EXISTS "본인 아바타 삭제" ON storage.objects;
+CREATE POLICY "본인 아바타 삭제" ON storage.objects
+  FOR DELETE USING (
+    bucket_id = 'avatars' AND auth.uid()::text = (storage.foldername(name))[1]
+  );
+
+-- 6. 맛집 상세 댓글
+CREATE TABLE IF NOT EXISTS delivery_comments (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  delivery_id UUID REFERENCES deliveries ON DELETE CASCADE NOT NULL,
+  user_id UUID REFERENCES auth.users ON DELETE CASCADE NOT NULL,
+  user_nickname TEXT NOT NULL DEFAULT '회원',
+  content TEXT NOT NULL CHECK (char_length(content) BETWEEN 1 AND 500),
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+ALTER TABLE delivery_comments ADD COLUMN IF NOT EXISTS user_nickname TEXT NOT NULL DEFAULT '회원';
+ALTER TABLE delivery_comments ADD COLUMN IF NOT EXISTS content TEXT;
+
+CREATE INDEX IF NOT EXISTS delivery_comments_delivery_id_created_at_idx
+  ON delivery_comments(delivery_id, created_at);
+
+ALTER TABLE delivery_comments ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "댓글 공개 조회" ON delivery_comments;
+CREATE POLICY "댓글 공개 조회" ON delivery_comments FOR SELECT USING (true);
+DROP POLICY IF EXISTS "본인 댓글 작성" ON delivery_comments;
+CREATE POLICY "본인 댓글 작성" ON delivery_comments FOR INSERT WITH CHECK (auth.uid() = user_id);
+DROP POLICY IF EXISTS "본인 댓글 삭제" ON delivery_comments;
+CREATE POLICY "본인 댓글 삭제" ON delivery_comments FOR DELETE USING (auth.uid() = user_id);
+GRANT SELECT ON TABLE delivery_comments TO anon, authenticated;
+GRANT INSERT, DELETE ON TABLE delivery_comments TO authenticated;
+NOTIFY pgrst, 'reload schema';
+
+-- 7. 대표 메뉴 이미지 저장소
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('delivery-images', 'delivery-images', true)
+ON CONFLICT (id) DO UPDATE SET public = true;
+
+DROP POLICY IF EXISTS "맛집 이미지 공개 조회" ON storage.objects;
+CREATE POLICY "맛집 이미지 공개 조회" ON storage.objects
+  FOR SELECT USING (bucket_id = 'delivery-images');
+DROP POLICY IF EXISTS "본인 맛집 이미지 업로드" ON storage.objects;
+CREATE POLICY "본인 맛집 이미지 업로드" ON storage.objects
+  FOR INSERT WITH CHECK (
+    bucket_id = 'delivery-images' AND auth.uid()::text = (storage.foldername(name))[1]
+  );
+DROP POLICY IF EXISTS "본인 맛집 이미지 삭제" ON storage.objects;
+CREATE POLICY "본인 맛집 이미지 삭제" ON storage.objects
+  FOR DELETE USING (
+    bucket_id = 'delivery-images' AND auth.uid()::text = (storage.foldername(name))[1]
   );

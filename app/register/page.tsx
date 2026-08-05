@@ -115,7 +115,7 @@ export default function RegisterPage() {
   const handleOcrSuccess = (data: any) => {
     if (data.storeName) setName(data.storeName)
     if (data.appName && APP_NAMES.includes(data.appName as any)) setAppName(data.appName)
-    if (data.totalAmount) setMinOrder(formatNumberWithComma(String(data.totalAmount)))
+    // 영수증의 "총결제금액"은 가게의 "최소주문금액" 정책과 다른 값이므로 자동입력하지 않는다.
     if (data.orderNumber) setOrderNumber(`${data.appName || 'APP'}_${data.orderNumber}`)
     setIsVerified(true)
 

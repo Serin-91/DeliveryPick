@@ -26,6 +26,11 @@ import DeliveryDetailModal from '@/components/DeliveryDetailModal'
 import HelpModal from '@/components/HelpModal'
 import TodayPickModal from '@/components/TodayPickModal'
 import ScrollToTopButton from '@/components/ScrollToTopButton'
+import {
+  getTodayPickSelection,
+  isUserLocation,
+  type UserLocation,
+} from '@/lib/todayPick'
 
 function ListPageContent() {
   const { user } = useAuth()
@@ -47,6 +52,8 @@ function ListPageContent() {
 
   // 위치 및 모달 상태
   const [userRegionName, setUserRegionName] = useState<string | null>(null)
+  const [userLocation, setUserLocation] = useState<UserLocation | null>(null)
+  const [useGpsForPick, setUseGpsForPick] = useState(false)
   const [selectedDelivery, setSelectedDelivery] = useState<Delivery | null>(null)
   const [detailModalOpen, setDetailModalOpen] = useState(false)
   const [helpModalOpen, setHelpModalOpen] = useState(false)
@@ -60,6 +67,21 @@ function ListPageContent() {
   }, [searchParams])
 
   useEffect(() => {
+    const savedLocation = localStorage.getItem('deliverypick-location')
+    if (savedLocation) {
+      try {
+        const parsedLocation: unknown = JSON.parse(savedLocation)
+        if (isUserLocation(parsedLocation)) {
+          setUserLocation(parsedLocation)
+          setUseGpsForPick(true)
+          setUserRegionName(parsedLocation.fullRegion)
+          return
+        }
+        localStorage.removeItem('deliverypick-location')
+      } catch {
+        localStorage.removeItem('deliverypick-location')
+      }
+    }
     setUserRegionName(localStorage.getItem('deliverypick-region-name'))
   }, [])
 
@@ -150,13 +172,29 @@ function ListPageContent() {
           )
           const data = await res.json()
           if (res.ok && data.region) {
-            setUserRegionName(data.region.fullRegion)
-            localStorage.setItem('deliverypick-region-name', data.region.fullRegion)
+            const location: UserLocation = {
+              lat: pos.coords.latitude,
+              lng: pos.coords.longitude,
+              sido: data.region.sido,
+              sigungu: data.region.sigungu,
+              fullRegion: data.region.fullRegion,
+            }
+            setUserLocation(location)
+            setUseGpsForPick(true)
+            setUserRegionName(location.fullRegion)
+            setFilterSido(location.sido)
+            const matchingSigungu = getSigunguList(location.sido).find(
+              (sigungu) =>
+                location.sigungu === sigungu || location.sigungu.startsWith(`${sigungu} `)
+            )
+            setFilterSigungu(matchingSigungu || '')
+            localStorage.setItem('deliverypick-location', JSON.stringify(location))
+            localStorage.setItem('deliverypick-region-name', location.fullRegion)
           } else {
-            setUserRegionName(data.error || '현재 위치의 지역명을 확인하지 못했습니다.')
+            alert(data.error || '현재 위치의 지역명을 확인하지 못했습니다.')
           }
         } catch {
-          setUserRegionName('현재 위치의 지역명을 확인하지 못했습니다.')
+          alert('현재 위치의 지역명을 확인하지 못했습니다.')
         }
       },
       (err) => {
@@ -171,6 +209,16 @@ function ListPageContent() {
   }
 
   const sigunguList = getSigunguList(filterSido)
+
+  const todayPickSelection = useMemo(
+    () =>
+      getTodayPickSelection(items, {
+        userLocation: useGpsForPick ? userLocation : null,
+        manualSido: filterSido,
+        manualSigungu: filterSigungu,
+      }),
+    [items, userLocation, useGpsForPick, filterSido, filterSigungu]
+  )
 
   // 하트 즐겨찾기 토글
   const handleBookmarkToggle = async (deliveryId: string) => {
@@ -346,6 +394,7 @@ function ListPageContent() {
               <select
                 value={filterSido}
                 onChange={(e) => {
+                  setUseGpsForPick(false)
                   setFilterSido(e.target.value)
                   setFilterSigungu('')
                 }}
@@ -362,7 +411,10 @@ function ListPageContent() {
               {filterSido && (
                 <select
                   value={filterSigungu}
-                  onChange={(e) => setFilterSigungu(e.target.value)}
+                  onChange={(e) => {
+                    setUseGpsForPick(false)
+                    setFilterSigungu(e.target.value)
+                  }}
                   className="px-3 py-1.5 rounded-xl border border-slate-200 bg-white text-slate-700"
                 >
                   <option value="">전체 시/군/구</option>
@@ -551,8 +603,7 @@ function ListPageContent() {
       <TodayPickModal
         isOpen={todayPickModalOpen}
         onClose={() => setTodayPickModalOpen(false)}
-        deliveries={items}
-        userRegionName={userRegionName}
+        selection={todayPickSelection}
       />
 
       <HelpModal isOpen={helpModalOpen} onClose={() => setHelpModalOpen(false)} />

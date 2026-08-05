@@ -39,9 +39,9 @@ export default function HelpModal({ isOpen, onClose }: HelpModalProps) {
           <div className="p-4 rounded-2xl bg-purple-50 border border-purple-100 flex items-start gap-3">
             <Sparkles className="w-5 h-5 text-purple-600 shrink-0 mt-0.5" />
             <div>
-              <h4 className="font-bold text-slate-900">🎲 AI 오늘 뭐먹지? 맛집 룰렛</h4>
+              <h4 className="font-bold text-slate-900">🎲 오늘 뭐 먹지? 맛집 룰렛</h4>
               <p className="text-slate-600 text-xs mt-0.5">
-                주사위를 굴리면 내 위치 주변 맛집 중 입맛에 딱 맞는 AI 찰떡 메뉴 추천!
+                GPS 현재 위치 또는 직접 선택한 지역의 등록 맛집 중 한 곳을 추천!
               </p>
             </div>
           </div>

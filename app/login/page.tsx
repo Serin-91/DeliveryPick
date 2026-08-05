@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { LogIn, Sparkles, Lock, Mail } from 'lucide-react'
@@ -14,6 +14,13 @@ export default function LoginPage() {
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [showGoogleNotice, setShowGoogleNotice] = useState(false)
+
+  // 카카오 로그인 API 라우트(/api/auth/kakao/start·callback)가 실패 시 ?error=로 돌려주는 안내문을 보여준다.
+  // useSearchParams 훅 대신 window.location으로 읽어 Suspense 경계 없이도 동작하게 한다.
+  useEffect(() => {
+    const error = new URLSearchParams(window.location.search).get('error')
+    if (error) alert(error)
+  }, [])
 
   // 이메일 로그인
   const handleEmailLogin = async (e: React.FormEvent) => {

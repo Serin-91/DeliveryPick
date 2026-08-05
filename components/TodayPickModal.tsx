@@ -1,8 +1,8 @@
 'use client'
 
-import { useState } from 'react'
-import { X, Sparkles, MapPin, ExternalLink, RefreshCw } from 'lucide-react'
-import type { Delivery } from '@/lib/types'
+import { useEffect, useRef, useState } from 'react'
+import { X, Dices, MapPin, ExternalLink, RefreshCw } from 'lucide-react'
+import type { TodayPickCandidate, TodayPickSelection } from '@/lib/todayPick'
 import Dice3D from './Dice3D'
 import StarRating from './StarRating'
 import { getDeliveryImageUrl } from '@/lib/deliveryImage'
@@ -10,67 +10,81 @@ import { getDeliveryImageUrl } from '@/lib/deliveryImage'
 interface TodayPickModalProps {
   isOpen: boolean
   onClose: () => void
-  deliveries: Delivery[]
-  userRegionName?: string | null
+  selection: TodayPickSelection
+}
+
+function formatDistance(distanceKm: number) {
+  return distanceKm < 1
+    ? `약 ${Math.max(1, Math.round(distanceKm * 1000))}m`
+    : `약 ${distanceKm.toFixed(1)}km`
+}
+
+function getPickComment(candidate: TodayPickCandidate, selection: TodayPickSelection) {
+  if (candidate.distanceKm !== null) {
+    return `현재 위치에서 ${formatDistance(candidate.distanceKm)} 거리예요. 오늘은 ${candidate.delivery.name}의 ${candidate.delivery.category} 메뉴를 즐겨보세요!`
+  }
+
+  return `${selection.locationLabel}에서 찾은 오늘의 맛집이에요. ${candidate.delivery.name}의 ${candidate.delivery.category} 메뉴는 어떠세요?`
 }
 
 export default function TodayPickModal({
   isOpen,
   onClose,
-  deliveries,
-  userRegionName,
+  selection,
 }: TodayPickModalProps) {
   const [rolling, setRolling] = useState(false)
-  const [pickedDelivery, setPickedDelivery] = useState<Delivery | null>(null)
-  const [aiComment, setAiComment] = useState<string>('')
+  const [pickedCandidate, setPickedCandidate] = useState<TodayPickCandidate | null>(null)
+  const [pickComment, setPickComment] = useState('')
   const [targetNumber, setTargetNumber] = useState(1)
+  const rollTimerRef = useRef<number | null>(null)
+
+  useEffect(() => {
+    return () => {
+      if (rollTimerRef.current !== null) window.clearTimeout(rollTimerRef.current)
+    }
+  }, [])
 
   if (!isOpen) return null
 
-  const handleRollDice = async () => {
-    if (deliveries.length === 0) {
-      alert('추천할 배달 맛집 데이터가 없습니다. 먼저 맛집을 등록해 주세요!')
+  const handleClose = () => {
+    if (rollTimerRef.current !== null) window.clearTimeout(rollTimerRef.current)
+    rollTimerRef.current = null
+    setRolling(false)
+    setPickedCandidate(null)
+    setPickComment('')
+    onClose()
+  }
+
+  const handleRollDice = () => {
+    if (selection.candidates.length === 0) {
+      alert(
+        selection.mode === 'none'
+          ? '내 위치를 사용하거나 메인 화면에서 시/도를 선택해 주세요.'
+          : `${selection.locationLabel}에 추천할 등록 맛집이 없습니다.`
+      )
       return
     }
 
     setRolling(true)
-    setPickedDelivery(null)
-    setAiComment('')
+    setPickedCandidate(null)
+    setPickComment('')
 
-    const randIndex = Math.floor(Math.random() * deliveries.length)
-    const selected = deliveries[randIndex]
-    const randDiceNum = Math.floor(Math.random() * 6) + 1
-    setTargetNumber(randDiceNum)
+    const candidate = selection.candidates[
+      Math.floor(Math.random() * selection.candidates.length)
+    ]
+    setTargetNumber(Math.floor(Math.random() * 6) + 1)
 
-    // 1.5초 팽팽 3D 메탈 주사위 회전 후 결과 세팅
-    setTimeout(async () => {
-      setPickedDelivery(selected)
+    rollTimerRef.current = window.setTimeout(() => {
+      setPickedCandidate(candidate)
+      setPickComment(getPickComment(candidate, selection))
       setRolling(false)
-
-      // Gemini AI 추천 메시지 호출 API (이미 뽑은 selected 1곳에 대한 추천사만 요청)
-      try {
-        const res = await fetch('/api/ai/recommend', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            deliveries: [selected],
-            userLocationName: userRegionName,
-          }),
-        })
-        const data = await res.json()
-        if (data.data?.reason) {
-          setAiComment(data.data.reason)
-        } else {
-          setAiComment(`"오늘 같은 날엔 고민 없이 ${selected.name}에서 맛있는 ${selected.category} 어떠세요?"`)
-        }
-      } catch {
-        setAiComment(`"오늘 입맛에 찰떡인 ${selected.name} 추천드립니다!"`)
-      }
+      rollTimerRef.current = null
     }, 1500)
   }
 
+  const pickedDelivery = pickedCandidate?.delivery || null
   const imageUrl = pickedDelivery ? getDeliveryImageUrl(pickedDelivery.image_path) : null
-  const commentWords = aiComment.split(/\s+/)
+  const commentWords = pickComment.split(/\s+/)
   const commentBreakAt = Math.ceil(commentWords.length / 2)
   const kakaoMapUrl = pickedDelivery?.place_url ||
     (pickedDelivery?.name ? `https://map.kakao.com/link/search/${encodeURIComponent(pickedDelivery.name)}` : 'https://map.kakao.com')
@@ -78,27 +92,29 @@ export default function TodayPickModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md animate-fadeIn">
       <div className="relative w-full max-w-lg bg-white/95 backdrop-blur-xl border border-white/80 rounded-3xl p-6 shadow-2xl overflow-hidden font-serif">
-        {/* 닫기 버튼 */}
         <button
-          onClick={onClose}
+          onClick={handleClose}
           className="absolute top-4 right-4 p-2 rounded-full text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-all"
+          aria-label="오늘 뭐 먹지 닫기"
         >
           <X className="w-5 h-5" />
         </button>
 
-        {/* 상단 타이틀 */}
         <div className="text-center mb-6">
           <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-purple-50 text-purple-600 text-xs font-semibold mb-2">
-            <Sparkles className="w-3.5 h-3.5" />
-            <span>AI 맛집 룰렛</span>
+            <Dices className="w-3.5 h-3.5" />
+            <span>내 주변 맛집 룰렛</span>
           </div>
-          <h2 className="text-2xl font-bold text-slate-900">AI 오늘 뭐 먹지? 🎲</h2>
+          <h2 className="text-2xl font-bold text-slate-900">오늘 뭐 먹지? 🎲</h2>
           <p className="text-xs text-slate-500 mt-1">
-            {userRegionName ? `📍 ${userRegionName} 주변 맛집 굴리는 중` : '내 주변 맛집 중에서 찰떡 메뉴 추천!'}
+            {selection.mode === 'gps'
+              ? `📍 ${selection.locationLabel} 주변 맛집 중에서 추천해요`
+              : selection.mode === 'manual'
+                ? `📍 ${selection.locationLabel} 맛집 중에서 추천해요`
+                : '내 위치를 사용하거나 메인 화면에서 지역을 선택해 주세요'}
           </p>
         </div>
 
-        {/* 3D 다크 메탈 주사위 렌더링 영역 */}
         <div className="my-6 py-4 flex flex-col items-center justify-center min-h-[140px]">
           <Dice3D rolling={rolling} targetNumber={targetNumber} />
           {!rolling && !pickedDelivery && (
@@ -108,31 +124,43 @@ export default function TodayPickModal({
           )}
         </div>
 
-        {/* 주사위 굴리기 실행 버튼 */}
         {!pickedDelivery && (
-          <button
-            onClick={handleRollDice}
-            disabled={rolling}
-            className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-bold text-base shadow-lg shadow-blue-500/25 hover:from-blue-700 hover:to-indigo-700 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
-          >
-            <RefreshCw className={`w-4 h-4 ${rolling ? 'animate-spin' : ''}`} />
-            <span>{rolling ? '맛집 찾는 중...' : '🎲 AI 추천 시작!'}</span>
-          </button>
+          <div>
+            <button
+              onClick={handleRollDice}
+              disabled={rolling || selection.candidates.length === 0}
+              className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-bold text-base shadow-lg shadow-blue-500/25 hover:from-blue-700 hover:to-indigo-700 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+            >
+              <RefreshCw className={`w-4 h-4 ${rolling ? 'animate-spin' : ''}`} />
+              <span>
+                {rolling
+                  ? '맛집 찾는 중...'
+                  : selection.candidates.length
+                    ? '🎲 추천 시작!'
+                    : '추천할 지역 맛집이 없어요'}
+              </span>
+            </button>
+            {selection.candidates.length === 0 && (
+              <p className="mt-2 text-center text-xs text-rose-500">
+                {selection.mode === 'none'
+                  ? '상단의 [내 위치]를 누르거나 메인 화면에서 시/도를 선택해 주세요.'
+                  : `${selection.locationLabel}에 등록된 맛집이 없습니다.`}
+              </p>
+            )}
+          </div>
         )}
 
-        {/* 추천 결과 카드 */}
-        {pickedDelivery && !rolling && (
+        {pickedDelivery && pickedCandidate && !rolling && (
           <div className="mt-4 p-5 rounded-2xl bg-slate-50 border border-slate-200/80 animate-scaleUp">
-            {/* AI 추천사 */}
             <div className="p-3 mb-4 rounded-xl bg-purple-100/70 text-purple-900 text-xs leading-relaxed font-medium">
               <span aria-hidden="true">💡 </span>
-              {aiComment ? (
+              {pickComment ? (
                 <>
                   {commentWords.slice(0, commentBreakAt).join(' ')}
                   <br />
                   {commentWords.slice(commentBreakAt).join(' ')}
                 </>
-              ) : '오늘의 운명적인 맛집 추천입니다!'}
+              ) : '오늘의 맛집 추천입니다!'}
             </div>
 
             <div className="flex gap-4 items-center">
@@ -158,13 +186,17 @@ export default function TodayPickModal({
                   {pickedDelivery.name}
                 </h3>
                 <StarRating rating={pickedDelivery.rating} className="mt-1" />
+                {pickedCandidate.distanceKm !== null && (
+                  <p className="text-xs font-semibold text-blue-600 mt-1">
+                    현재 위치에서 {formatDistance(pickedCandidate.distanceKm)}
+                  </p>
+                )}
                 <p className="text-xs text-slate-600 mt-1">
                   최소주문금액: {pickedDelivery.min_order?.toLocaleString()}원
                 </p>
               </div>
             </div>
 
-            {/* 카카오맵 실시간 영업여부 확인 바로가기 버튼 */}
             <div className="mt-4 pt-3 border-t border-slate-200/80 flex flex-col gap-2">
               <a
                 href={kakaoMapUrl}
