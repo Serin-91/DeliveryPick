@@ -54,6 +54,9 @@ function ListPageContent() {
   const [userRegionName, setUserRegionName] = useState<string | null>(null)
   const [userLocation, setUserLocation] = useState<UserLocation | null>(null)
   const [useGpsForPick, setUseGpsForPick] = useState(false)
+  const [locationPermissionDenied, setLocationPermissionDenied] = useState(false)
+  const [pickSido, setPickSido] = useState('')
+  const [pickSigungu, setPickSigungu] = useState('')
   const [selectedDelivery, setSelectedDelivery] = useState<Delivery | null>(null)
   const [detailModalOpen, setDetailModalOpen] = useState(false)
   const [helpModalOpen, setHelpModalOpen] = useState(false)
@@ -160,10 +163,14 @@ function ListPageContent() {
   // GPS 위치 자동 감지
   const handleGetLocation = () => {
     if (!navigator.geolocation) {
+      setUseGpsForPick(false)
+      setUserLocation(null)
+      localStorage.removeItem('deliverypick-location')
       alert('브라우저가 GPS를 지원하지 않습니다.')
       return
     }
 
+    setLocationPermissionDenied(false)
     navigator.geolocation.getCurrentPosition(
       async (pos) => {
         try {
@@ -181,26 +188,33 @@ function ListPageContent() {
             }
             setUserLocation(location)
             setUseGpsForPick(true)
+            setLocationPermissionDenied(false)
             setUserRegionName(location.fullRegion)
-            setFilterSido(location.sido)
-            const matchingSigungu = getSigunguList(location.sido).find(
-              (sigungu) =>
-                location.sigungu === sigungu || location.sigungu.startsWith(`${sigungu} `)
-            )
-            setFilterSigungu(matchingSigungu || '')
             localStorage.setItem('deliverypick-location', JSON.stringify(location))
             localStorage.setItem('deliverypick-region-name', location.fullRegion)
           } else {
+            setUseGpsForPick(false)
+            setUserLocation(null)
+            localStorage.removeItem('deliverypick-location')
             alert(data.error || '현재 위치의 지역명을 확인하지 못했습니다.')
           }
         } catch {
+          setUseGpsForPick(false)
+          setUserLocation(null)
+          localStorage.removeItem('deliverypick-location')
           alert('현재 위치의 지역명을 확인하지 못했습니다.')
         }
       },
       (err) => {
         if (err.code === err.PERMISSION_DENIED) {
-          alert('위치 권한이 거부되었습니다. 브라우저 설정에서 위치 접근을 허용해 주세요.')
+          setLocationPermissionDenied(true)
+          setUseGpsForPick(false)
+          setUserLocation(null)
+          localStorage.removeItem('deliverypick-location')
         } else {
+          setUseGpsForPick(false)
+          setUserLocation(null)
+          localStorage.removeItem('deliverypick-location')
           alert('위치 정보를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.')
         }
       },
@@ -214,11 +228,27 @@ function ListPageContent() {
     () =>
       getTodayPickSelection(items, {
         userLocation: useGpsForPick ? userLocation : null,
-        manualSido: filterSido,
-        manualSigungu: filterSigungu,
+        manualSido: pickSido,
+        manualSigungu: pickSigungu,
       }),
-    [items, userLocation, useGpsForPick, filterSido, filterSigungu]
+    [items, userLocation, useGpsForPick, pickSido, pickSigungu]
   )
+
+  const handlePickSidoChange = (sido: string) => {
+    setPickSido(sido)
+    setPickSigungu('')
+    setUseGpsForPick(false)
+  }
+
+  const handlePickSigunguChange = (sigungu: string) => {
+    setPickSigungu(sigungu)
+    setUseGpsForPick(false)
+  }
+
+  const handleOpenLocationPick = () => {
+    setTodayPickModalOpen(true)
+    handleGetLocation()
+  }
 
   // 하트 즐겨찾기 토글
   const handleBookmarkToggle = async (deliveryId: string) => {
@@ -316,7 +346,7 @@ function ListPageContent() {
       <Header
         onOpenTodayPick={() => setTodayPickModalOpen(true)}
         userRegionName={userRegionName}
-        onGetLocation={handleGetLocation}
+        onGetLocation={handleOpenLocationPick}
       />
 
       <main className="flex-1 max-w-6xl w-full mx-auto px-4 py-6">
@@ -394,7 +424,6 @@ function ListPageContent() {
               <select
                 value={filterSido}
                 onChange={(e) => {
-                  setUseGpsForPick(false)
                   setFilterSido(e.target.value)
                   setFilterSigungu('')
                 }}
@@ -411,10 +440,7 @@ function ListPageContent() {
               {filterSido && (
                 <select
                   value={filterSigungu}
-                  onChange={(e) => {
-                    setUseGpsForPick(false)
-                    setFilterSigungu(e.target.value)
-                  }}
+                  onChange={(e) => setFilterSigungu(e.target.value)}
                   className="px-3 py-1.5 rounded-xl border border-slate-200 bg-white text-slate-700"
                 >
                   <option value="">전체 시/군/구</option>
@@ -604,6 +630,12 @@ function ListPageContent() {
         isOpen={todayPickModalOpen}
         onClose={() => setTodayPickModalOpen(false)}
         selection={todayPickSelection}
+        pickSido={pickSido}
+        pickSigungu={pickSigungu}
+        onPickSidoChange={handlePickSidoChange}
+        onPickSigunguChange={handlePickSigunguChange}
+        onRequestLocation={handleGetLocation}
+        locationPermissionDenied={locationPermissionDenied}
       />
 
       <HelpModal isOpen={helpModalOpen} onClose={() => setHelpModalOpen(false)} />

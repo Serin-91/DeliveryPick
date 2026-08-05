@@ -98,13 +98,21 @@ export function getTodayPickSelection(
       .sort((a, b) => a.distanceKm - b.distanceKm)
       .slice(0, MAX_GPS_CANDIDATES)
 
-    // 예전 등록 데이터처럼 매장 좌표가 없는 경우에도 GPS로 확인한 행정구역 안에서 추천한다.
-    const candidates = candidatesWithDistance.length
-      ? candidatesWithDistance
-      : filterByRegion(deliveries, userLocation.sido, userLocation.sigungu).map((delivery) => ({
+    // 좌표가 없는 기존 등록 맛집은 GPS로 확인한 동일 행정구역 후보로 보완한다.
+    const regionalCandidatesWithoutCoordinates = filterByRegion(
+      deliveries,
+      userLocation.sido,
+      userLocation.sigungu
+    )
+      .filter((delivery) => !isValidCoordinate(delivery.lat, delivery.lng))
+      .map((delivery) => ({
           delivery,
           distanceKm: null,
         }))
+    const candidates = [
+      ...candidatesWithDistance,
+      ...regionalCandidatesWithoutCoordinates,
+    ].slice(0, MAX_GPS_CANDIDATES)
 
     return {
       candidates,
